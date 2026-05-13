@@ -22,6 +22,8 @@ class ConsumerType(str, Enum):
     QUEUE_OPERATION = "queue_operation"
     ARCHIVE_OPERATION = "archive_operation"
     PARSER_OPERATION = "parser_operation"
+    DATABASE_OPERATION = "database_operation"
+    DIRECTORY_OPERATION = "directory_operation"
 
 
 class WorkerType(str, Enum):
@@ -57,6 +59,8 @@ class BoundaryType(str, Enum):
     EXTERNAL_TO_INTERNAL = "external_to_internal"
     LOW_PRIV_TO_PRIVILEGED_CONSUMER = "low_priv_to_privileged_consumer"
     PARSER_TO_CONSUMER = "parser_to_consumer"
+    DATA_TO_DATABASE = "data_to_database"
+    DATA_TO_DIRECTORY = "data_to_directory"
 
 
 class PrimitiveType(str, Enum):
@@ -73,6 +77,8 @@ class PrimitiveType(str, Enum):
     AUTH_CONTEXT_CONFUSION = "auth_context_confusion"
     TENANT_CONFUSION = "tenant_confusion"
     PARSER_DIFFERENTIAL = "parser_differential"
+    QUERY_CONTROL = "query_control"
+    DIRECTORY_QUERY_CONTROL = "directory_query_control"
 
 
 class Project(BaseModel):

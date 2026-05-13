@@ -1,0 +1,4 @@
+<Rows>
+  <RMPProductAPIs API_NAME="DeviceList" API_URL="/rmp/devices" MTCALL_NAME="operation"
+      MTCALL_VALUE="listDevices" REQUIRES_ACCOUNT_AUTHORIZATION="true" ACCESS_TYPE="admin" />
+</Rows>

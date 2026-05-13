@@ -71,6 +71,8 @@ def test_enum_values_are_expected_wire_values():
         "queue_operation",
         "archive_operation",
         "parser_operation",
+        "database_operation",
+        "directory_operation",
     ]
     assert [item.value for item in WorkerType] == [
         "queue_worker",
@@ -98,6 +100,8 @@ def test_enum_values_are_expected_wire_values():
         "external_to_internal",
         "low_priv_to_privileged_consumer",
         "parser_to_consumer",
+        "data_to_database",
+        "data_to_directory",
     ]
     assert [item.value for item in PrimitiveType] == [
         "path_control",
@@ -113,6 +117,8 @@ def test_enum_values_are_expected_wire_values():
         "auth_context_confusion",
         "tenant_confusion",
         "parser_differential",
+        "query_control",
+        "directory_query_control",
     ]
 
 

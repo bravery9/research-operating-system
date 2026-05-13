@@ -1,0 +1,3 @@
+<servlet-forward>
+  <request url="/legacy/report.do" forward="/jsp/report.jsp" servlet="ReportForwardServlet" />
+</servlet-forward>

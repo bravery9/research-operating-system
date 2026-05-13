@@ -152,6 +152,583 @@ def test_detects_template_consumer_and_route():
     _assert_unique_ids(consumers)
 
 
+def test_detects_tomcat_web_xml_entrypoints():
+    repo_root, files = _indexed_fixture("mini_tomcat_app")
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    assert any(
+        entrypoint.file == "WEB-INF/web.xml"
+        and entrypoint.framework_hint == "tomcat-web-xml"
+        and entrypoint.route_path == "/*"
+        and _has_evidence(entrypoint, pattern="tomcat_url_pattern", file="WEB-INF/web.xml")
+        for entrypoint in entrypoints
+    )
+    assert any(
+        entrypoint.file == "WEB-INF/web.xml"
+        and entrypoint.framework_hint == "tomcat-web-xml"
+        and entrypoint.route_path == "/api/*"
+        and _has_evidence(entrypoint, pattern="tomcat_url_pattern", file="WEB-INF/web.xml")
+        for entrypoint in entrypoints
+    )
+    assert any(
+        entrypoint.file == "WEB-INF/web.xml"
+        and entrypoint.framework_hint == "tomcat-web-xml"
+        and entrypoint.evidence[0].pattern == "tomcat_filter_class"
+        and "SecurityFilter" in entrypoint.evidence[0].snippet
+        for entrypoint in entrypoints
+    )
+    assert any(
+        entrypoint.file == "WEB-INF/web.xml"
+        and entrypoint.framework_hint == "tomcat-web-xml"
+        and entrypoint.evidence[0].pattern == "tomcat_servlet_class"
+        and "RestDispatcher" in entrypoint.evidence[0].snippet
+        for entrypoint in entrypoints
+    )
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
+
+def test_detects_multiline_conf_tomcat_web_xml_and_security_constraints(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "conf/web.xml": """
+<web-app>
+  <servlet>
+    <servlet-name>LegacyDispatcher</servlet-name>
+    <servlet-class>
+      com.example.web.LegacyDispatcher
+    </servlet-class>
+  </servlet>
+  <servlet-mapping>
+    <servlet-name>LegacyDispatcher</servlet-name>
+    <url-pattern>
+      /legacy/*
+    </url-pattern>
+  </servlet-mapping>
+  <security-constraint>
+    <web-resource-collection>
+      <url-pattern>/admin/*</url-pattern>
+      <http-method>TRACE</http-method>
+    </web-resource-collection>
+  </security-constraint>
+</web-app>
+""",
+        },
+    )
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    assert any(
+        entrypoint.file == "conf/web.xml"
+        and entrypoint.framework_hint == "tomcat-web-xml"
+        and entrypoint.route_path == "/legacy/*"
+        and _has_evidence(entrypoint, pattern="tomcat_url_pattern", file="conf/web.xml")
+        for entrypoint in entrypoints
+    )
+    assert any(
+        entrypoint.file == "conf/web.xml"
+        and entrypoint.framework_hint == "tomcat-web-xml"
+        and entrypoint.evidence[0].pattern == "tomcat_servlet_class"
+        and "LegacyDispatcher" in entrypoint.evidence[0].snippet
+        for entrypoint in entrypoints
+    )
+    assert any(
+        entrypoint.file == "conf/web.xml"
+        and entrypoint.framework_hint == "tomcat-security-constraint"
+        and entrypoint.method == "trace"
+        and entrypoint.route_path == "/admin/*"
+        and _has_evidence(entrypoint, pattern="tomcat_security_constraint", file="conf/web.xml")
+        for entrypoint in entrypoints
+    )
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
+
+def test_detects_tomcat_server_connectors(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "conf/server.xml": """
+<Server>
+  <Service name="Catalina">
+    <Connector
+      port="8081"
+      protocol="HTTP/1.1"
+      allowTrace="false"
+      redirectPort="8444" />
+    <Connector port="8444" scheme="https" secure="true" clientAuth="want" sslEnabledProtocols="TLSv1.2,TLSv1.3" />
+  </Service>
+</Server>
+""",
+        },
+    )
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    assert any(
+        entrypoint.file == "conf/server.xml"
+        and entrypoint.framework_hint == "tomcat-connector"
+        and entrypoint.route_path == "http://*:8081"
+        and entrypoint.evidence[0].message is not None
+        and "allowTrace=false" in entrypoint.evidence[0].message
+        and "redirectPort=8444" in entrypoint.evidence[0].message
+        for entrypoint in entrypoints
+    )
+    assert any(
+        entrypoint.file == "conf/server.xml"
+        and entrypoint.framework_hint == "tomcat-connector"
+        and entrypoint.route_path == "https://*:8444"
+        and entrypoint.evidence[0].message is not None
+        and "clientAuth=want" in entrypoint.evidence[0].message
+        and "sslEnabledProtocols=TLSv1.2,TLSv1.3" in entrypoint.evidence[0].message
+        for entrypoint in entrypoints
+    )
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
+
+def test_detects_zsec_security_xml_url_rules_and_ignores_comments(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "conf/security-common.xml": """
+<security>
+  <!-- <url path="/disabled" method="GET" authentication="optional" /> -->
+  <url path="/reports/export" method="POST" authentication="required" csrf="true">
+    <param name="exportType" regex="alpha" max-len="32" />
+    <throttle name="exportThrottle" duration="60" threshold="5" />
+  </url>
+</security>
+""",
+        },
+    )
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    assert not any(entrypoint.route_path == "/disabled" for entrypoint in entrypoints)
+    match = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "conf/security-common.xml"
+        and entrypoint.framework_hint == "zsec-security"
+        and entrypoint.route_path == "/reports/export"
+    )
+    assert match.method == "post"
+    assert match.evidence[0].message is not None
+    assert "authentication=required" in match.evidence[0].message
+    assert "csrf=true" in match.evidence[0].message
+    assert "param=exportType" in match.evidence[0].message
+    assert "throttle=exportThrottle" in match.evidence[0].message
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
+
+def test_detects_zsec_security_xml_control_consumers(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "conf/security-defaultrequestheaders.xml": """
+<security>
+  <default-request-headers>
+    <header name="X-Forwarded-For" />
+    <cookie name="JSESSIONID" />
+  </default-request-headers>
+</security>
+""",
+            "conf/security-safeheaders.xml": """
+<security>
+  <safe-response-headers>
+    <header name="Strict-Transport-Security" />
+  </safe-response-headers>
+</security>
+""",
+            "conf/security-common.xml": """
+<security>
+  <content-types><content-type name="application/json" /></content-types>
+  <url-validator name="externalUrl" />
+  <xsspattern name="html" />
+  <zip-sanitizer name="archives" />
+</security>
+""",
+        },
+    )
+
+    consumers = detect_consumers(repo_root, files)
+
+    assert any(
+        consumer.file == "conf/security-defaultrequestheaders.xml"
+        and consumer.type == ConsumerType.CONFIG_OPERATION
+        and consumer.pattern == "zsec_security_control"
+        and consumer.evidence[0].message is not None
+        and "default-request-headers" in consumer.evidence[0].message
+        and "header=X-Forwarded-For" in consumer.evidence[0].message
+        and "cookie=JSESSIONID" in consumer.evidence[0].message
+        for consumer in consumers
+    )
+    assert any(
+        consumer.file == "conf/security-common.xml"
+        and consumer.type == ConsumerType.ARCHIVE_OPERATION
+        and consumer.pattern == "zsec_zip_sanitizer"
+        and consumer.evidence[0].message is not None
+        and "zip-sanitizer=archives" in consumer.evidence[0].message
+        for consumer in consumers
+    )
+    assert any(
+        consumer.file == "conf/security-common.xml"
+        and consumer.type == ConsumerType.CONFIG_OPERATION
+        and consumer.pattern == "zsec_security_control"
+        and consumer.evidence[0].message is not None
+        and "url-validator=externalUrl" in consumer.evidence[0].message
+        and "xsspattern=html" in consumer.evidence[0].message
+        for consumer in consumers
+    )
+    _assert_all_detections_have_evidence(consumers)
+    _assert_unique_ids(consumers)
+
+
+def test_detects_product_api_xml_mappings_with_auth_and_params(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "conf/adsf/ADSProductAPIs.xml": """
+<Rows>
+  <ADSProductAPIs API_NAME="ExportReport" API_URL="/ads/export" MTCALL_NAME="methodToCall"
+      MTCALL_VALUE="exportReport" SERVLET_CLASS_NAME="com.example.ExportServlet"
+      IS_HS_REQUIRED="true" IS_ALLOWED_ON_DEMO="false" />
+  <ADSProductAPIParams API_NAME="ExportReport" PARAM_NAME="domain" />
+</Rows>
+""",
+            "conf/rmpdb/RMPProductAPIs.xml": """
+<Rows>
+  <RMPProductAPIs API_NAME="DeviceList" API_URL="/rmp/devices" MTCALL_NAME="operation"
+      MTCALL_VALUE="listDevices" REQUIRES_ACCOUNT_AUTHORIZATION="true" ACCESS_TYPE="admin" />
+</Rows>
+""",
+        },
+    )
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    ads_match = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "conf/adsf/ADSProductAPIs.xml"
+        and entrypoint.framework_hint == "product-api-xml"
+        and entrypoint.route_path == "/ads/export"
+    )
+    assert ads_match.handler == "com.example.ExportServlet"
+    assert ads_match.evidence[0].message is not None
+    assert "MTCALL_NAME=methodToCall" in ads_match.evidence[0].message
+    assert "MTCALL_VALUE=exportReport" in ads_match.evidence[0].message
+    assert "IS_HS_REQUIRED=true" in ads_match.evidence[0].message
+    assert "IS_ALLOWED_ON_DEMO=false" in ads_match.evidence[0].message
+    assert "param=domain" in ads_match.evidence[0].message
+
+    rmp_match = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "conf/rmpdb/RMPProductAPIs.xml"
+        and entrypoint.framework_hint == "product-api-xml"
+        and entrypoint.route_path == "/rmp/devices"
+    )
+    assert rmp_match.handler == "listDevices"
+    assert rmp_match.evidence[0].message is not None
+    assert "REQUIRES_ACCOUNT_AUTHORIZATION=true" in rmp_match.evidence[0].message
+    assert "ACCESS_TYPE=admin" in rmp_match.evidence[0].message
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
+
+def test_detects_servlet_forward_config_mappings(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "WEB-INF/Servlet-Forward-Config.xml": """
+<servlet-forward>
+  <request url="/legacy/report.do" forward="/jsp/report.jsp" servlet="ReportForwardServlet" />
+</servlet-forward>
+""",
+        },
+    )
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    match = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "WEB-INF/Servlet-Forward-Config.xml"
+        and entrypoint.framework_hint == "servlet-forward-config"
+        and entrypoint.route_path == "/legacy/report.do"
+    )
+    assert match.handler == "ReportForwardServlet"
+    assert match.evidence[0].message is not None
+    assert "forward=/jsp/report.jsp" in match.evidence[0].message
+    assert "servlet=ReportForwardServlet" in match.evidence[0].message
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
+
+def test_deduplicates_same_enterprise_entrypoint_and_merges_evidence(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "conf/web.xml": """
+<web-app>
+  <servlet-mapping><url-pattern>/api/*</url-pattern></servlet-mapping>
+  <filter-mapping><url-pattern>/api/*</url-pattern></filter-mapping>
+</web-app>
+""",
+        },
+    )
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    matches = [
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.framework_hint == "tomcat-web-xml"
+        and entrypoint.route_path == "/api/*"
+        and entrypoint.method is None
+        and entrypoint.handler is None
+    ]
+    assert len(matches) == 1
+    assert len(matches[0].evidence) == 2
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
+
+def test_detects_adap_rest_api_xml_mappings():
+    repo_root, files = _indexed_fixture("mini_tomcat_app")
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    expected_routes = {"/report/getReportData", "/object/classObjects"}
+    detected_routes = {
+        entrypoint.route_path
+        for entrypoint in entrypoints
+        if entrypoint.file == "conf/adap/rest-api.xml"
+        and entrypoint.framework_hint == "adap-rest-api"
+        and _has_evidence(
+            entrypoint, pattern="adap_rest_api_mapping", file="conf/adap/rest-api.xml"
+        )
+    }
+    assert expected_routes <= detected_routes
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
+
+def test_detects_adap_rest_api_multiline_metadata_and_ignores_comments(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "conf/adap/rest-api.xml": """
+<Rows>
+  <!-- <ADAPRestApiMapping URL_PATH="/disabled" CLASS_NAME="example.Disabled" METHOD_NAME="run" /> -->
+  <ADAPRestApiMapping
+      TAB_NAME="reports"
+      URL_PATH="/report/data"
+      CLASS_NAME="com.example.ReportHandler"
+      METHOD_NAME="getData"
+      ACCESS_ID="REPORT_READ"
+      ACCESS_TYPE="read" />
+</Rows>
+""",
+        },
+    )
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    assert not any(entrypoint.route_path == "/disabled" for entrypoint in entrypoints)
+    match = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "conf/adap/rest-api.xml"
+        and entrypoint.framework_hint == "adap-rest-api"
+        and entrypoint.route_path == "/report/data"
+    )
+    assert match.handler == "com.example.ReportHandler#getData"
+    assert match.evidence[0].message is not None
+    assert "ACCESS_ID=REPORT_READ" in match.evidence[0].message
+    assert "ACCESS_TYPE=read" in match.evidence[0].message
+    assert "TAB_NAME=reports" in match.evidence[0].message
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
+
+def test_detects_taskengine_workers():
+    repo_root, files = _indexed_fixture("mini_tomcat_app")
+
+    workers = detect_workers(repo_root, files)
+
+    assert any(
+        worker.file == "conf/adap/taskflow.xml"
+        and worker.framework_hint == "taskengine"
+        and worker.pattern == "taskengine_task"
+        and _has_evidence(worker, pattern="taskengine_task", file="conf/adap/taskflow.xml")
+        and "EventUpdateTask" in worker.evidence[0].snippet
+        for worker in workers
+    )
+    assert any(
+        worker.file == "conf/adap/taskflow.xml"
+        and worker.framework_hint == "taskengine"
+        and worker.pattern == "taskengine_task"
+        and "ImportLogTask" in worker.evidence[0].snippet
+        for worker in workers
+    )
+    _assert_all_detections_have_evidence(workers)
+    _assert_unique_ids(workers)
+
+
+def test_detects_multiline_taskengine_workers_with_metadata(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "conf/adap/taskflow.xml": """
+<Rows>
+  <!-- <TaskEngine_Task task_name="Disabled" class_name="example.DisabledTask" /> -->
+  <TaskEngine_Task
+      task_name="ImportLogSchedule"
+      class_name="com.example.importlog.ImportLogTask" />
+</Rows>
+""",
+        },
+    )
+
+    workers = detect_workers(repo_root, files)
+
+    assert not any("DisabledTask" in worker.evidence[0].snippet for worker in workers)
+    match = next(
+        worker
+        for worker in workers
+        if worker.file == "conf/adap/taskflow.xml"
+        and worker.framework_hint == "taskengine"
+        and worker.pattern == "taskengine_task"
+        and "ImportLogTask" in worker.evidence[0].snippet
+    )
+    assert match.evidence[0].message is not None
+    assert "task_name=ImportLogSchedule" in match.evidence[0].message
+    assert "class_name=com.example.importlog.ImportLogTask" in match.evidence[0].message
+    _assert_all_detections_have_evidence(workers)
+    _assert_unique_ids(workers)
+
+
+def test_detects_java_webservlet_jaxrs_and_soap_entrypoints(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "src/com/example/AnnotatedEndpoints.java": """
+package com.example;
+
+@WebServlet(value={"/servlet/report", "/servlet/export"})
+class ReportServlet {}
+
+@Path("/api")
+class ReportResource {
+    @GET
+    @Path("/reports")
+    public String listReports() { return "ok"; }
+
+    @POST
+    @Path("/reports")
+    public String createReport() { return "ok"; }
+}
+
+@WebService
+class AuditSoapService {
+    @WebMethod
+    public void syncAudit() {}
+}
+""",
+        },
+    )
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    assert any(
+        entrypoint.framework_hint == "java-webservlet"
+        and entrypoint.route_path == "/servlet/report"
+        and entrypoint.handler == "ReportServlet"
+        for entrypoint in entrypoints
+    )
+    assert any(
+        entrypoint.framework_hint == "jax-rs"
+        and entrypoint.method == "get"
+        and entrypoint.route_path == "/api/reports"
+        and entrypoint.handler == "ReportResource#listReports"
+        for entrypoint in entrypoints
+    )
+    assert any(
+        entrypoint.framework_hint == "jax-rs"
+        and entrypoint.method == "post"
+        and entrypoint.route_path == "/api/reports"
+        and entrypoint.handler == "ReportResource#createReport"
+        for entrypoint in entrypoints
+    )
+    assert any(
+        entrypoint.type == EntrypointType.RPC_HANDLER
+        and entrypoint.framework_hint == "java-soap"
+        and entrypoint.handler == "AuditSoapService#syncAudit"
+        for entrypoint in entrypoints
+    )
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
+
+def test_detects_legacy_java_handler_class_candidates(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "src/com/example/LegacyReportController.java": """
+package com.example;
+
+class LegacyReportController {
+    public void execute() {}
+}
+""",
+        },
+    )
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    assert any(
+        entrypoint.framework_hint == "java-enterprise-handler"
+        and entrypoint.handler == "LegacyReportController"
+        for entrypoint in entrypoints
+    )
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
+
+def test_detects_javascript_and_cc_url_config_routes(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "webapps/adap/static/config.js": """
+const apiUrl = "/TFAConfigDiv.cc?methodToCall=load";
+const label = "/not/a/route";
+""",
+            "webapps/adap/static/legacy.cc": """
+var mapping = "/legacy/report.do?methodToCall=save";
+""",
+        },
+    )
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    routes = {
+        entrypoint.route_path
+        for entrypoint in entrypoints
+        if entrypoint.framework_hint == "javascript-url-config"
+    }
+    assert "/TFAConfigDiv.cc?methodToCall=load" in routes
+    assert "/legacy/report.do?methodToCall=save" in routes
+    assert "/not/a/route" not in routes
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
+
 def test_detects_nextjs_pages_and_app_api_routes(tmp_path):
     repo_root, files = _indexed_tmp_repo(
         tmp_path,
@@ -259,6 +836,38 @@ def test_detects_required_consumer_categories(tmp_path):
         assert snippet_part in match.evidence[0].snippet
     _assert_all_detections_have_evidence(consumers)
 
+
+
+def test_detects_java_enterprise_consumers():
+    repo_root, files = _indexed_fixture("mini_tomcat_app")
+
+    consumers = detect_consumers(repo_root, files)
+
+    expected = [
+        (ConsumerType.PARSER_OPERATION, "request_parameter", "getParameter"),
+        (ConsumerType.PROCESS_OPERATION, "process_operation", "Runtime.getRuntime().exec"),
+        (ConsumerType.PROCESS_OPERATION, "process_operation", "ProcessBuilder"),
+        (ConsumerType.FILE_OPERATION, "file_operation", "Paths.get"),
+        (ConsumerType.FILE_OPERATION, "file_operation", "Files.readAllBytes"),
+        (ConsumerType.FILE_OPERATION, "file_operation", "Files.write"),
+        (ConsumerType.DESERIALIZATION, "deserialization", "ObjectInputStream"),
+        (ConsumerType.PARSER_OPERATION, "parser_operation", "DocumentBuilderFactory"),
+        (ConsumerType.CONFIG_OPERATION, "config_operation", "properties.load"),
+        (ConsumerType.DATABASE_OPERATION, "database_operation", "RelationalAPI"),
+        (ConsumerType.DATABASE_OPERATION, "database_operation", "DriverManager.getConnection"),
+        (ConsumerType.DIRECTORY_OPERATION, "directory_operation", "InitialDirContext"),
+        (ConsumerType.DIRECTORY_OPERATION, "directory_operation", "context.search"),
+    ]
+    for consumer_type, pattern, snippet_part in expected:
+        assert any(
+            consumer.file == "src/com/example/RestHandler.java"
+            and consumer.type == consumer_type
+            and consumer.pattern == pattern
+            and snippet_part in consumer.evidence[0].snippet
+            for consumer in consumers
+        ), (consumer_type, pattern, snippet_part)
+    _assert_all_detections_have_evidence(consumers)
+    _assert_unique_ids(consumers)
 
 
 def test_detects_spring_get_mapping(tmp_path):

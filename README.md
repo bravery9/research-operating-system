@@ -47,14 +47,20 @@ Options:
 ## Supported Detection Areas
 
 - HTTP routes, webhooks, GraphQL-like handlers, and framework route patterns.
-- Worker, queue, event-consumer, background-task, and cron-like candidates.
-- File, network, process, template, deserialization, configuration, queue, archive, and parser consumers.
-- Trust boundary candidates such as request-to-worker, data-to-file, data-to-url, data-to-template, data-to-config, data-to-job, external-to-internal, low-privilege-to-privileged-consumer, and parser-to-consumer.
-- Primitive candidates such as file/path control, URL control, internal request trigger, template control, type control, job control, configuration control, cache/session concerns, auth-context confusion, tenant confusion, and parser differentials.
+- Enterprise Java/Tomcat descriptors including `WEB-INF/web.xml`, `conf/web.xml`, servlet mappings, security constraints, filters, listeners, and `server.xml` connector candidates.
+- ManageEngine/ZSec-style `security-*.xml` URL rules and security controls such as auth/csrf/throttle metadata, headers, cookies, content types, URL validators, XSS patterns, and zip sanitizers.
+- Product API XML mappings such as `ADSProductAPIs`, `RMPProductAPIs`, `API_URL`, `MTCALL_*`, `SERVLET_CLASS_NAME`, and servlet-forward XML mappings.
+- Java endpoint candidates from `@WebServlet`, JAX-RS `@Path`/HTTP method annotations, SOAP `@WebService`/`@WebMethod`, and conservative legacy handler class names.
+- JavaScript and `.cc` URL configuration candidates when route-like strings appear in URL/mapping/action context.
+- Worker, queue, event-consumer, background-task, cron-like, and TaskEngine candidates.
+- File, network, process, template, deserialization, configuration, queue, archive, parser, database, and directory consumers.
+- Trust boundary candidates such as request-to-worker, data-to-file, data-to-url, data-to-template, data-to-config, data-to-job, data-to-database, data-to-directory, external-to-internal, low-privilege-to-privileged-consumer, and parser-to-consumer.
+- Primitive candidates such as file/path control, URL control, internal request trigger, template control, type control, job control, query control, directory query control, configuration control, cache/session concerns, auth-context confusion, tenant confusion, and parser differentials.
 
 ## Limitations
 
 - Static heuristics can miss code paths and can produce false positives.
+- Enterprise XML and legacy endpoint detections are heuristic inventory candidates and require human review.
 - Findings are candidates for review, not vulnerability confirmations.
 - The audit pipeline does not execute application code.
 - The audit pipeline does not call an LLM in v0.1.

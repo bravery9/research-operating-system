@@ -1,0 +1,6 @@
+<Rows>
+  <ADSProductAPIs API_NAME="ExportReport" API_URL="/ads/export" MTCALL_NAME="methodToCall"
+      MTCALL_VALUE="exportReport" SERVLET_CLASS_NAME="com.example.ExportServlet"
+      IS_HS_REQUIRED="true" IS_ALLOWED_ON_DEMO="false" />
+  <ADSProductAPIParams API_NAME="ExportReport" PARAM_NAME="domain" />
+</Rows>

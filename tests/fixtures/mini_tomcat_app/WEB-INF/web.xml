@@ -1,0 +1,21 @@
+<web-app>
+  <filter>
+    <filter-name>Security Filter</filter-name>
+    <filter-class>com.example.security.SecurityFilter</filter-class>
+  </filter>
+  <filter-mapping>
+    <filter-name>Security Filter</filter-name>
+    <url-pattern>/*</url-pattern>
+  </filter-mapping>
+  <servlet>
+    <servlet-name>RestDispatcher</servlet-name>
+    <servlet-class>com.example.web.RestDispatcher</servlet-class>
+  </servlet>
+  <servlet-mapping>
+    <servlet-name>RestDispatcher</servlet-name>
+    <url-pattern>/api/*</url-pattern>
+  </servlet-mapping>
+  <listener>
+    <listener-class>com.example.web.BootstrapListener</listener-class>
+  </listener>
+</web-app>

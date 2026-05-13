@@ -1,0 +1,6 @@
+<security>
+  <default-request-headers>
+    <header name="X-Forwarded-For" />
+    <cookie name="JSESSIONID" />
+  </default-request-headers>
+</security>

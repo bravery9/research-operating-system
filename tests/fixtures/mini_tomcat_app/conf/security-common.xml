@@ -1,0 +1,11 @@
+<security>
+  <!-- <url path="/disabled" method="GET" authentication="optional" /> -->
+  <url path="/reports/export" method="POST" authentication="required" csrf="true">
+    <param name="exportType" regex="alpha" max-len="32" />
+    <throttle name="exportThrottle" duration="60" threshold="5" />
+  </url>
+  <content-types><content-type name="application/json" /></content-types>
+  <url-validator name="externalUrl" />
+  <xsspattern name="html" />
+  <zip-sanitizer name="archives" />
+</security>

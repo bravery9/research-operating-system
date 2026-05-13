@@ -74,6 +74,14 @@ def test_template_app_infers_template_boundary():
     _assert_boundary_metadata(boundaries)
 
 
+def test_tomcat_app_infers_database_and_directory_boundaries():
+    _, _, _, boundaries = _pipeline(FIXTURES / "mini_tomcat_app")
+
+    assert BoundaryType.DATA_TO_DATABASE in _boundary_types(boundaries)
+    assert BoundaryType.DATA_TO_DIRECTORY in _boundary_types(boundaries)
+    _assert_boundary_metadata(boundaries)
+
+
 def test_parser_to_consumer_boundary_from_archive_parser_and_consumers():
     _, _, _, boundaries = _pipeline(FIXTURES / "mini_parser_to_consumer")
 

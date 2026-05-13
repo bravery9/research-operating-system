@@ -1,0 +1,10 @@
+<Server>
+  <Service name="Catalina">
+    <Connector
+      port="8081"
+      protocol="HTTP/1.1"
+      allowTrace="false"
+      redirectPort="8444" />
+    <Connector port="8444" scheme="https" secure="true" clientAuth="want" sslEnabledProtocols="TLSv1.2,TLSv1.3" />
+  </Service>
+</Server>

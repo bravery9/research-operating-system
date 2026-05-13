@@ -124,6 +124,30 @@ def classify_primitives(
             )
         )
 
+    database_boundary = boundary_by_type.get(BoundaryType.DATA_TO_DATABASE)
+    if database_boundary is not None:
+        candidates.append(
+            _candidate(
+                PrimitiveType.QUERY_CONTROL,
+                database_boundary.confidence,
+                _evidence_from([database_boundary], _consumers_of_type(consumers, ConsumerType.DATABASE_OPERATION)),
+                "confirmation of which query, connection, or parameter fields are data-influenced",
+                "Trace benign query parameters through database access construction and authorization checks.",
+            )
+        )
+
+    directory_boundary = boundary_by_type.get(BoundaryType.DATA_TO_DIRECTORY)
+    if directory_boundary is not None:
+        candidates.append(
+            _candidate(
+                PrimitiveType.DIRECTORY_QUERY_CONTROL,
+                directory_boundary.confidence,
+                _evidence_from([directory_boundary], _consumers_of_type(consumers, ConsumerType.DIRECTORY_OPERATION)),
+                "confirmation of which directory lookup base, filter, or attributes are data-influenced",
+                "Trace benign directory lookup values through LDAP or directory query construction.",
+            )
+        )
+
     parser_boundary = boundary_by_type.get(BoundaryType.PARSER_TO_CONSUMER)
     if parser_boundary is not None:
         candidates.append(
@@ -235,17 +259,33 @@ def _evidence_from(*groups: Iterable[_HasEvidence]) -> list[Evidence]:
 
 
 def _has_write_pattern(consumers: list[Consumer]) -> bool:
-    write_terms = ("writefile", ".write(")
+    write_terms = (
+        "writefile",
+        ".write(",
+        "fileoutputstream",
+        "files.write",
+        "files.copy",
+        "files.move",
+        "files.delete",
+        "newoutputstream",
+    )
     return any(_snippet_contains(consumer, write_terms) or _has_open_write_mode(consumer) for consumer in consumers)
 
 
 def _has_read_pattern(consumers: list[Consumer]) -> bool:
-    read_terms = ("readfile", ".read(")
+    read_terms = (
+        "readfile",
+        ".read(",
+        "fileinputstream",
+        "files.readallbytes",
+        "files.readstring",
+        "newinputstream",
+    )
     return any(_snippet_contains(consumer, read_terms) or _has_open_read_mode(consumer) for consumer in consumers)
 
 
 def _has_path_pattern(consumers: list[Consumer]) -> bool:
-    path_terms = ("path.join", "path.resolve", "os.path.join", "path(")
+    path_terms = ("path.join", "path.resolve", "os.path.join", "path(", "paths.get", "path.of", "new file(")
     return any(_snippet_contains(consumer, path_terms) for consumer in consumers)
 
 

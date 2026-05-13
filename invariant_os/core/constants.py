@@ -13,6 +13,25 @@ DEFAULT_IGNORE_DIRS: set[str] = {
     "outputs",
 }
 
+NOISY_FILE_SUFFIXES: set[str] = {
+    ".log",
+    ".out",
+    ".err",
+    ".jar",
+    ".war",
+    ".ear",
+    ".class",
+    ".zip",
+    ".gz",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".pdf",
+    ".db",
+    ".sqlite",
+}
+
 LANGUAGE_BY_EXTENSION: dict[str, str] = {
     ".py": "python",
     ".js": "javascript",
@@ -24,6 +43,15 @@ LANGUAGE_BY_EXTENSION: dict[str, str] = {
     ".rb": "ruby",
     ".php": "php",
     ".cs": "csharp",
+    ".xml": "xml",
+    ".jsp": "jsp",
+    ".jspx": "jsp",
+    ".properties": "config",
+    ".conf": "config",
+    ".bat": "batch",
+    ".cmd": "batch",
+    ".sh": "shell",
+    ".sql": "sql",
     ".yml": "yaml",
     ".yaml": "yaml",
     ".json": "json",

@@ -1,0 +1,6 @@
+<Rows>
+  <ADAPRestApiMapping UNIQUE_ID="ADAPRestApiMapping:UNIQUE_ID:1" TAB_NAME="reports" URL_PATH="/report/getReportData" CLASS_NAME="com.example.ReportHandler" METHOD_NAME="getReportData" />
+  <ADAPRestApiMapping UNIQUE_ID="ADAPRestApiMapping:UNIQUE_ID:2" TAB_NAME="objects" URL_PATH="/object/classObjects"
+      CLASS_NAME="com.example.ADObjectModalHandler" METHOD_NAME="viewObjects"
+      DESCRIPTION="Retrieves object details" />
+</Rows>

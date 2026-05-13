@@ -269,6 +269,47 @@ def test_method_open_keyword_append_mode_suggests_file_write():
     _assert_primitive_metadata(primitives)
 
 
+def test_java_file_read_terms_suggest_file_read():
+    snippet = "new java.io.FileInputStream(userPath);"
+
+    primitives = classify_primitives(
+        [_file_boundary(snippet)],
+        [_consumer(ConsumerType.FILE_OPERATION, snippet)],
+        [],
+    )
+
+    assert PrimitiveType.FILE_READ in _primitive_types(primitives)
+    _assert_primitive_metadata(primitives)
+
+
+def test_java_path_terms_suggest_path_control_alongside_write():
+    path_snippet = "java.nio.file.Path path = java.nio.file.Paths.get(body);"
+    write_snippet = "java.nio.file.Files.write(path, body.getBytes());"
+
+    primitives = classify_primitives(
+        [_file_boundary(path_snippet)],
+        [
+            _consumer(ConsumerType.FILE_OPERATION, path_snippet),
+            _consumer(ConsumerType.FILE_OPERATION, write_snippet, line=2),
+        ],
+        [],
+    )
+
+    primitive_types = _primitive_types(primitives)
+    assert PrimitiveType.FILE_WRITE in primitive_types
+    assert PrimitiveType.PATH_CONTROL in primitive_types
+    _assert_primitive_metadata(primitives)
+
+
+def test_tomcat_app_suggests_query_and_directory_query_primitives():
+    _, _, _, primitives = _full_pipeline(FIXTURES / "mini_tomcat_app")
+
+    primitive_types = _primitive_types(primitives)
+    assert PrimitiveType.QUERY_CONTROL in primitive_types
+    assert PrimitiveType.DIRECTORY_QUERY_CONTROL in primitive_types
+    _assert_primitive_metadata(primitives)
+
+
 def test_deserialization_consumer_suggests_type_control():
     primitives = classify_primitives(
         [],

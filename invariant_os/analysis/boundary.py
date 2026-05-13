@@ -32,6 +32,8 @@ def infer_boundaries(
     queue_consumers = _consumers_of_type(consumers, ConsumerType.QUEUE_OPERATION)
     parser_consumers = _consumers_of_type(consumers, ConsumerType.PARSER_OPERATION)
     archive_consumers = _consumers_of_type(consumers, ConsumerType.ARCHIVE_OPERATION)
+    database_consumers = _consumers_of_type(consumers, ConsumerType.DATABASE_OPERATION)
+    directory_consumers = _consumers_of_type(consumers, ConsumerType.DIRECTORY_OPERATION)
 
     if entrypoints and workers:
         candidates.append(
@@ -90,6 +92,26 @@ def infer_boundaries(
                 Confidence.MEDIUM,
                 "Candidate boundary where data appears to cross into queued or background job handling.",
                 _evidence_from(queue_consumers, workers),
+            )
+        )
+
+    if database_consumers:
+        candidates.append(
+            (
+                BoundaryType.DATA_TO_DATABASE,
+                Confidence.MEDIUM,
+                "Candidate boundary where application data may influence database query or connection operations.",
+                _evidence_from(database_consumers),
+            )
+        )
+
+    if directory_consumers:
+        candidates.append(
+            (
+                BoundaryType.DATA_TO_DIRECTORY,
+                Confidence.MEDIUM,
+                "Candidate boundary where application data may influence directory or LDAP lookup operations.",
+                _evidence_from(directory_consumers),
             )
         )
 

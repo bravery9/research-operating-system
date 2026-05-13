@@ -1,0 +1,5 @@
+<security>
+  <safe-response-headers>
+    <header name="Strict-Transport-Security" />
+  </safe-response-headers>
+</security>

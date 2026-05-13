@@ -1,0 +1,20 @@
+<web-app>
+  <servlet>
+    <servlet-name>LegacyDispatcher</servlet-name>
+    <servlet-class>
+      com.example.web.LegacyDispatcher
+    </servlet-class>
+  </servlet>
+  <servlet-mapping>
+    <servlet-name>LegacyDispatcher</servlet-name>
+    <url-pattern>
+      /legacy/*
+    </url-pattern>
+  </servlet-mapping>
+  <security-constraint>
+    <web-resource-collection>
+      <url-pattern>/admin/*</url-pattern>
+      <http-method>TRACE</http-method>
+    </web-resource-collection>
+  </security-constraint>
+</web-app>
