@@ -1,0 +1,32 @@
+DEFAULT_IGNORE_DIRS: set[str] = {
+    ".git",
+    "node_modules",
+    "vendor",
+    "dist",
+    "build",
+    ".next",
+    "target",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "coverage",
+    "outputs",
+}
+
+LANGUAGE_BY_EXTENSION: dict[str, str] = {
+    ".py": "python",
+    ".js": "javascript",
+    ".jsx": "javascript",
+    ".ts": "typescript",
+    ".tsx": "typescript",
+    ".java": "java",
+    ".go": "go",
+    ".rb": "ruby",
+    ".php": "php",
+    ".cs": "csharp",
+    ".yml": "yaml",
+    ".yaml": "yaml",
+    ".json": "json",
+    ".toml": "toml",
+    ".md": "markdown",
+}

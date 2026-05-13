@@ -1,0 +1,1 @@
+const express = require('express'); const fs = require('fs'); const queue = require('./queue'); const app = express(); app.post('/import', async (req, res) => { queue.add('import', req.body); fs.writeFile('/tmp/import.json', JSON.stringify(req.body), () => {}); res.json({ ok: true }); });
