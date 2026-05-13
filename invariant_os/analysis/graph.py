@@ -17,6 +17,7 @@ from invariant_os.core.models import (
     EvidenceGraphNodeType,
     FileRecord,
     PrimitiveCandidate,
+    StaticFlowCandidate,
     Worker,
 )
 
@@ -40,6 +41,7 @@ def build_evidence_graph(
     workers: list[Worker],
     boundaries: list[BoundaryCandidate],
     primitive_candidates: list[PrimitiveCandidate],
+    static_flow_candidates: list[StaticFlowCandidate],
 ) -> EvidenceGraph:
     nodes: list[EvidenceGraphNode] = []
     edges: list[EvidenceGraphEdge] = []
@@ -126,6 +128,21 @@ def build_evidence_graph(
             metadata={"confidence": primitive.confidence.value},
         )
 
+    for candidate in static_flow_candidates:
+        _add_reference_node(
+            nodes,
+            node_by_ref,
+            node_counts,
+            ref_id=candidate.id,
+            node_type=EvidenceGraphNodeType.STATIC_FLOW,
+            label=f"{candidate.source_entrypoint_id} -> {candidate.target_ref_id}",
+            metadata={
+                "confidence": candidate.confidence.value,
+                "score": str(candidate.score),
+                "target_type": candidate.target_type.value,
+            },
+        )
+
     detection_targets: list[_GraphEvidenceSource] = [*entrypoints, *consumers, *workers]
     primitive_targets: list[_GraphEvidenceSource] = [*detection_targets, *boundaries]
 
@@ -135,6 +152,7 @@ def build_evidence_graph(
         workers=workers,
         max_edges_per_entrypoint=MAX_RESOLVER_EDGES_PER_ENTRYPOINT,
     )
+    _add_static_flow_edges(edges, node_by_ref, static_flow_candidates)
     _add_resolved_candidate_edges(edges, node_by_ref, resolved_edges)
     remaining_low_signal_edges = MAX_TOTAL_LOW_SIGNAL_CORRELATION_EDGES
     same_file_edges = _add_same_file_correlations(
@@ -236,6 +254,40 @@ def _add_reference_node(
         )
     )
     node_by_ref[ref_id] = node_id
+
+
+def _add_static_flow_edges(
+    edges: list[EvidenceGraphEdge],
+    node_by_ref: dict[str, str],
+    static_flow_candidates: Sequence[StaticFlowCandidate],
+) -> None:
+    for candidate in static_flow_candidates:
+        source_node = node_by_ref.get(candidate.source_entrypoint_id)
+        flow_node = node_by_ref.get(candidate.id)
+        target_node = node_by_ref.get(candidate.target_ref_id)
+        if source_node is None or flow_node is None or target_node is None:
+            continue
+        evidence_ids = _evidence_ids(candidate.evidence)
+        _append_edge(
+            edges,
+            edge_type=EvidenceGraphEdgeType.STATIC_FLOW_SOURCE,
+            source=source_node,
+            target=flow_node,
+            confidence=candidate.confidence,
+            evidence_ids=evidence_ids,
+            reason=f"Candidate static flow source for `{candidate.id}`.",
+            missing_evidence=candidate.missing_evidence,
+        )
+        _append_edge(
+            edges,
+            edge_type=EvidenceGraphEdgeType.STATIC_FLOW_TARGET,
+            source=flow_node,
+            target=target_node,
+            confidence=candidate.confidence,
+            evidence_ids=evidence_ids,
+            reason=candidate.summary,
+            missing_evidence=candidate.missing_evidence,
+        )
 
 
 def _add_resolved_candidate_edges(

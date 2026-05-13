@@ -83,7 +83,10 @@ def test_audit_writes_java_tomcat_fixture_signals(tmp_path):
     primitive_types = {candidate.primitive for candidate in audit_result.primitive_candidates}
 
     assert graph_path.exists()
-    assert audit_result.schema_version == "0.3"
+    assert audit_result.schema_version == "0.4"
+    assert audit_result.static_flow_candidates
+    assert audit_result.summary.static_flow_candidates == len(audit_result.static_flow_candidates)
+    assert all(candidate.missing_evidence for candidate in audit_result.static_flow_candidates)
 
     entrypoint_hints = {entrypoint.framework_hint for entrypoint in audit_result.entrypoints}
     assert "tomcat-web-xml" in entrypoint_hints
@@ -120,11 +123,18 @@ def test_audit_writes_java_tomcat_fixture_signals(tmp_path):
         "route_to_worker_candidate",
         "route_to_consumer_candidate",
     } & graph_edge_types
-    assert len(graph.edges) < 250
+    assert "static_flow_source" in graph_edge_types
+    assert "static_flow_target" in graph_edge_types
+    assert len(graph.edges) < 275
     forbidden_claim_terms = re.compile(r"\b(exploit|rce|compromise|confirmed|vulnerable)\b")
     assert all(forbidden_claim_terms.search(edge.reason.lower()) is None for edge in graph.edges)
+    assert all(
+        forbidden_claim_terms.search(candidate.summary.lower()) is None
+        for candidate in audit_result.static_flow_candidates
+    )
 
     markdown = markdown_path.read_text(encoding="utf-8")
+    assert "Static Flow/Dataflow Candidates" in markdown
     assert "authorized local repository analysis" in markdown
     assert "does not prove exploitability" in markdown
     assert "confirmed vulnerable" not in markdown.lower()

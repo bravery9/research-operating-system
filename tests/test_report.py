@@ -15,6 +15,10 @@ from invariant_os.core.models import (
     PrimitiveType,
     Project,
     SafetyMetadata,
+    StaticFlowCandidate,
+    StaticFlowSignal,
+    StaticFlowSignalType,
+    StaticFlowTargetType,
 )
 from invariant_os.report.markdown import render_research_brief
 
@@ -29,6 +33,7 @@ REQUIRED_SECTIONS = [
     "## Dangerous Consumer Inventory",
     "## Trust Boundary Candidates",
     "## Primitive Candidates To Investigate",
+    "## Static Flow/Dataflow Candidates",
     "## Evidence Graph Summary",
     "## Suggested Security Invariants",
     "## Missing Evidence",
@@ -47,6 +52,7 @@ def _empty_result() -> AuditResult:
             workers=0,
             boundaries=0,
             primitive_candidates=0,
+            static_flow_candidates=0,
         ),
         safety=SafetyMetadata(),
     )
@@ -96,6 +102,7 @@ def test_research_brief_references_evidence_ids_and_missing_evidence():
                 workers=0,
                 boundaries=1,
                 primitive_candidates=1,
+                static_flow_candidates=0,
             ),
         }
     )
@@ -106,6 +113,67 @@ def test_research_brief_references_evidence_ids_and_missing_evidence():
     assert "confirm whether the file path is data-influenced" in markdown
     assert "boundary_0001" in markdown
     assert "primitive_0001" in markdown
+
+
+def test_research_brief_renders_static_flow_candidates_with_evidence_and_missing_evidence():
+    evidence = Evidence(
+        id="ev_flow_0001",
+        type=EvidenceType.PATTERN_MATCH,
+        file="routes.xml",
+        line=4,
+        pattern="product_api_xml",
+        snippet="SERVLET_CLASS_NAME=com.example.ReportServlet",
+    )
+    candidate = StaticFlowCandidate(
+        id="flow_0001",
+        source_entrypoint_id="ep_0001",
+        target_ref_id="cons_0001",
+        target_type=StaticFlowTargetType.CONSUMER,
+        confidence=Confidence.HIGH,
+        score=110,
+        summary="Candidate static flow from `ep_0001` to `cons_0001` based on handler overlap.",
+        signals=[
+            StaticFlowSignal(
+                type=StaticFlowSignalType.HANDLER_CLASS,
+                term="ReportServlet",
+                score=60,
+                evidence_ids=["ev_flow_0001"],
+            )
+        ],
+        evidence=[evidence],
+        missing_evidence=["confirm runtime dispatch"],
+    )
+    result = _empty_result().model_copy(
+        update={
+            "static_flow_candidates": [candidate],
+            "summary": AuditSummary(
+                files=1,
+                entrypoints=1,
+                consumers=1,
+                workers=0,
+                boundaries=0,
+                primitive_candidates=0,
+                static_flow_candidates=1,
+            ),
+        }
+    )
+
+    markdown = render_research_brief(result)
+
+    assert "## Static Flow/Dataflow Candidates" in markdown
+    assert "flow_0001" in markdown
+    assert "ep_0001" in markdown
+    assert "cons_0001" in markdown
+    assert "consumer" in markdown
+    assert "high" in markdown
+    assert "110" in markdown
+    assert "handler_class" in markdown
+    assert "ReportServlet" in markdown
+    assert "ev_flow_0001" in markdown
+    assert "confirm runtime dispatch" in markdown
+    assert "confirmed vulnerable" not in markdown.lower()
+    assert "exploitability proved" not in markdown.lower()
+    assert "exploit payload" not in markdown.lower()
 
 
 def test_research_brief_summarizes_evidence_graph_edges():

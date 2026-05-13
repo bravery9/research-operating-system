@@ -10,18 +10,21 @@ from invariant_os.core.models import (
     Evidence,
     EvidenceGraphEdgeType,
     PrimitiveCandidate,
+    StaticFlowCandidate,
     Worker,
 )
 
 
 _GRAPH_EDGE_PRIORITY = {
-    EvidenceGraphEdgeType.ROUTE_TO_WORKER_CANDIDATE: 0,
-    EvidenceGraphEdgeType.ROUTE_TO_CONSUMER_CANDIDATE: 1,
-    EvidenceGraphEdgeType.HANDLER_NAME_CORRELATION: 2,
-    EvidenceGraphEdgeType.SAME_FILE_CORRELATION: 3,
-    EvidenceGraphEdgeType.BOUNDARY_EVIDENCE: 4,
-    EvidenceGraphEdgeType.PRIMITIVE_EVIDENCE: 5,
-    EvidenceGraphEdgeType.DEFINED_IN: 6,
+    EvidenceGraphEdgeType.STATIC_FLOW_SOURCE: 0,
+    EvidenceGraphEdgeType.STATIC_FLOW_TARGET: 1,
+    EvidenceGraphEdgeType.ROUTE_TO_WORKER_CANDIDATE: 2,
+    EvidenceGraphEdgeType.ROUTE_TO_CONSUMER_CANDIDATE: 3,
+    EvidenceGraphEdgeType.HANDLER_NAME_CORRELATION: 4,
+    EvidenceGraphEdgeType.SAME_FILE_CORRELATION: 5,
+    EvidenceGraphEdgeType.BOUNDARY_EVIDENCE: 6,
+    EvidenceGraphEdgeType.PRIMITIVE_EVIDENCE: 7,
+    EvidenceGraphEdgeType.DEFINED_IN: 8,
 }
 
 
@@ -43,6 +46,7 @@ def render_research_brief(result: AuditResult) -> str:
         f"- Worker/background candidates: {result.summary.workers}",
         f"- Trust boundary candidates: {result.summary.boundaries}",
         f"- Primitive candidates to investigate: {result.summary.primitive_candidates}",
+        f"- Static flow/dataflow candidates: {result.summary.static_flow_candidates}",
         "",
         "## Repository Profile",
         "",
@@ -69,6 +73,10 @@ def render_research_brief(result: AuditResult) -> str:
         "## Primitive Candidates To Investigate",
         "",
         *_render_primitives(result.primitive_candidates),
+        "",
+        "## Static Flow/Dataflow Candidates",
+        "",
+        *_render_static_flows(result.static_flow_candidates),
         "",
         "## Evidence Graph Summary",
         "",
@@ -144,6 +152,30 @@ def _render_primitives(primitives: list[PrimitiveCandidate]) -> list[str]:
     ]
 
 
+def _render_static_flows(candidates: list[StaticFlowCandidate]) -> list[str]:
+    if not candidates:
+        return ["No static flow/dataflow candidates were inferred."]
+    lines: list[str] = []
+    for candidate in candidates:
+        lines.append(
+            f"- `{candidate.id}` {candidate.target_type.value} candidate ({candidate.confidence.value} confidence, "
+            f"score {candidate.score}) from `{candidate.source_entrypoint_id}` to `{candidate.target_ref_id}`. "
+            f"{candidate.summary} Evidence: {_evidence_refs(candidate.evidence)}. "
+            f"Signals: {_render_flow_signals(candidate)}. "
+            f"Missing evidence: {_join_or_none(candidate.missing_evidence)}"
+        )
+    return lines
+
+
+def _render_flow_signals(candidate: StaticFlowCandidate) -> str:
+    if not candidate.signals:
+        return "none recorded"
+    return "; ".join(
+        f"{signal.type.value}:{signal.term} (+{signal.score}, evidence {_join_or_none(signal.evidence_ids)})"
+        for signal in candidate.signals
+    )
+
+
 def _render_evidence_graph(result: AuditResult) -> list[str]:
     if not result.evidence_graph.nodes and not result.evidence_graph.edges:
         return ["No evidence graph candidates were generated."]
@@ -201,6 +233,7 @@ def _render_evidence_index(result: AuditResult) -> list[str]:
         *[worker.evidence for worker in result.workers],
         *[boundary.evidence for boundary in result.boundaries],
         *[primitive.evidence for primitive in result.primitive_candidates],
+        *[candidate.evidence for candidate in result.static_flow_candidates],
     )
     if not evidence:
         return ["No evidence records were collected."]

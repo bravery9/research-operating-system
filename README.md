@@ -6,7 +6,7 @@ Core principle: LLM proposes. Tools prove. Human approves.
 
 ## Safety Model
 
-InvariantOS v0.1 only analyzes local directories that the operator is authorized to review. Reports use candidate, hypothesis, and missing-evidence language. The tool does not scan public targets, generate exploit payloads, or claim exploitability.
+InvariantOS analyzes only local directories that the operator is authorized to review. Reports use candidate, hypothesis, and missing-evidence language. The tool does not scan public targets, generate exploit payloads, execute target code, or claim exploitability.
 
 ## Install
 
@@ -41,9 +41,9 @@ Options:
 
 ## Output Files
 
-- `audit_result.json`: stable structured audit output containing indexed files, detections, boundary candidates, primitive candidates, evidence graph, summary counts, and safety metadata.
-- `evidence_graph.json`: deterministic graph of candidate relationships between files, entrypoints, workers, consumers, boundaries, primitives, and supporting evidence IDs.
-- `research_brief.md`: Markdown research brief with scope, summary, candidates, evidence graph summary, missing evidence, safe manual review steps, and an evidence index.
+- `audit_result.json`: stable structured audit output containing indexed files, detections, boundary candidates, primitive candidates, static flow/dataflow candidates, evidence graph, summary counts, and safety metadata.
+- `evidence_graph.json`: deterministic graph of candidate relationships between files, entrypoints, workers, consumers, boundaries, primitives, static-flow source/target edges, and supporting evidence IDs.
+- `research_brief.md`: Markdown research brief with scope, summary, candidates, Static Flow/Dataflow Candidates, evidence graph summary, missing evidence, safe manual review steps, and an evidence index.
 
 ## Supported Detection Areas
 
@@ -57,7 +57,8 @@ Options:
 - File, network, process, template, deserialization, configuration, queue, archive, parser, database, and directory consumers.
 - Trust boundary candidates such as request-to-worker, data-to-file, data-to-url, data-to-template, data-to-config, data-to-job, data-to-database, data-to-directory, external-to-internal, low-privilege-to-privileged-consumer, and parser-to-consumer.
 - Primitive candidates such as file/path control, URL control, internal request trigger, template control, type control, job control, query control, directory query control, configuration control, cache/session concerns, auth-context confusion, tenant confusion, and parser differentials.
-- Evidence graph generation for candidate same-file, handler-name, Java/Enterprise route-to-worker, Java/Enterprise route-to-consumer, boundary-evidence, and primitive-evidence correlations, with deterministic pruning/ranking to reduce noisy graph output.
+- Static flow/dataflow enrichment that conservatively links entrypoints to likely consumers or workers using handler metadata, declared parameters, request parameter names, route tokens, and bounded same-file proximity.
+- Evidence graph generation for candidate same-file, handler-name, Java/Enterprise route-to-worker, Java/Enterprise route-to-consumer, static-flow source/target, boundary-evidence, and primitive-evidence correlations, with deterministic pruning/ranking to reduce noisy graph output.
 
 ## Limitations
 
@@ -65,6 +66,8 @@ Options:
 - Enterprise XML and legacy endpoint detections are heuristic inventory candidates and require human review.
 - Evidence graph edges are conservative static correlations, not confirmed runtime dataflows.
 - Java/Enterprise resolver edges are static candidates based on route, handler, metadata, and evidence-token correlation; they do not prove runtime dispatch or dataflow.
+- Static flow/dataflow candidates are heuristic links for review; they do not prove runtime reachability, exploitability, authorization bypass, or request-controlled influence.
+- The flow enrichment is intentionally bounded and token/metadata-based; it is not a broad AST, call-graph, or interprocedural dataflow engine.
 - Findings are candidates for review, not vulnerability confirmations.
 - The audit pipeline does not execute application code.
 - The audit pipeline does not call an LLM in v0.1.

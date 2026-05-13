@@ -15,6 +15,10 @@ from invariant_os.core.models import (
     FileRecord,
     PrimitiveCandidate,
     PrimitiveType,
+    StaticFlowCandidate,
+    StaticFlowSignal,
+    StaticFlowSignalType,
+    StaticFlowTargetType,
     Worker,
     WorkerType,
 )
@@ -59,6 +63,7 @@ def test_build_evidence_graph_adds_file_detection_nodes_and_defined_in_edges():
         workers=[],
         boundaries=[],
         primitive_candidates=[],
+        static_flow_candidates=[],
     )
 
     node_types = {node.type for node in graph.nodes}
@@ -97,6 +102,7 @@ def test_build_evidence_graph_correlates_same_file_entrypoint_to_consumer():
         workers=[],
         boundaries=[],
         primitive_candidates=[],
+        static_flow_candidates=[],
     )
 
     edge = next(edge for edge in graph.edges if edge.type == EvidenceGraphEdgeType.SAME_FILE_CORRELATION)
@@ -146,6 +152,7 @@ def test_build_evidence_graph_correlates_handler_name_to_worker_snippet():
         workers=[worker],
         boundaries=[],
         primitive_candidates=[],
+        static_flow_candidates=[],
     )
 
     edge = next(edge for edge in graph.edges if edge.type == EvidenceGraphEdgeType.HANDLER_NAME_CORRELATION)
@@ -186,6 +193,7 @@ def test_build_evidence_graph_links_boundaries_and_primitives_to_detection_evide
         workers=[],
         boundaries=[boundary],
         primitive_candidates=[primitive],
+        static_flow_candidates=[],
     )
 
     assert any(node.type == EvidenceGraphNodeType.BOUNDARY and node.ref_id == "boundary_0001" for node in graph.nodes)
@@ -249,6 +257,7 @@ def test_build_evidence_graph_adds_enterprise_route_candidate_edges():
         workers=[worker],
         boundaries=[],
         primitive_candidates=[],
+        static_flow_candidates=[],
     )
 
     worker_edge = next(
@@ -268,6 +277,77 @@ def test_build_evidence_graph_adds_enterprise_route_candidate_edges():
     assert consumer_edge.source == entrypoint_node.id
     assert consumer_edge.target == consumer_node.id
     assert consumer_edge.evidence_ids == ["ev_ep_0001", "ev_cons_0001"]
+
+
+def test_build_evidence_graph_projects_static_flow_candidate():
+    files = [
+        FileRecord(path="routes.xml", language="xml", size_bytes=10, sha256="abc"),
+        FileRecord(path="src/ReportServlet.java", language="java", size_bytes=10, sha256="def"),
+    ]
+    entrypoint_evidence = _evidence("ev_ep_0001", "routes.xml", 4, "product_api_xml")
+    consumer_evidence = _evidence("ev_cons_0001", "src/ReportServlet.java", 12, "database_operation")
+    entrypoint = Entrypoint(
+        id="ep_0001",
+        type=EntrypointType.HTTP_ROUTE,
+        file="routes.xml",
+        line=4,
+        route_path="/reports/export",
+        handler="com.example.ReportServlet",
+        evidence=[entrypoint_evidence],
+    )
+    consumer = Consumer(
+        id="cons_0001",
+        type=ConsumerType.DATABASE_OPERATION,
+        file="src/ReportServlet.java",
+        line=12,
+        pattern="database_operation",
+        evidence=[consumer_evidence],
+    )
+    candidate = StaticFlowCandidate(
+        id="flow_0001",
+        source_entrypoint_id="ep_0001",
+        target_ref_id="cons_0001",
+        target_type=StaticFlowTargetType.CONSUMER,
+        confidence=Confidence.HIGH,
+        score=110,
+        summary="Candidate static flow from `ep_0001` to `cons_0001` based on handler overlap.",
+        signals=[
+            StaticFlowSignal(
+                type=StaticFlowSignalType.HANDLER_CLASS,
+                term="ReportServlet",
+                score=60,
+                evidence_ids=["ev_ep_0001"],
+            )
+        ],
+        evidence=[entrypoint_evidence, consumer_evidence],
+        missing_evidence=["confirm runtime dispatch"],
+    )
+
+    graph = build_evidence_graph(
+        files=files,
+        entrypoints=[entrypoint],
+        consumers=[consumer],
+        workers=[],
+        boundaries=[],
+        primitive_candidates=[],
+        static_flow_candidates=[candidate],
+    )
+
+    flow_node = next(node for node in graph.nodes if node.ref_id == "flow_0001")
+    entrypoint_node = next(node for node in graph.nodes if node.ref_id == "ep_0001")
+    consumer_node = next(node for node in graph.nodes if node.ref_id == "cons_0001")
+    source_edge = next(edge for edge in graph.edges if edge.type == EvidenceGraphEdgeType.STATIC_FLOW_SOURCE)
+    target_edge = next(edge for edge in graph.edges if edge.type == EvidenceGraphEdgeType.STATIC_FLOW_TARGET)
+
+    assert flow_node.type == EvidenceGraphNodeType.STATIC_FLOW
+    assert flow_node.metadata == {"confidence": "high", "score": "110", "target_type": "consumer"}
+    assert source_edge.source == entrypoint_node.id
+    assert source_edge.target == flow_node.id
+    assert target_edge.source == flow_node.id
+    assert target_edge.target == consumer_node.id
+    assert target_edge.reason == candidate.summary
+    assert target_edge.missing_evidence == ["confirm runtime dispatch"]
+    assert target_edge.evidence_ids == ["ev_ep_0001", "ev_cons_0001"]
 
 
 def test_build_evidence_graph_caps_same_file_correlations_per_entrypoint():
@@ -298,6 +378,7 @@ def test_build_evidence_graph_caps_same_file_correlations_per_entrypoint():
         workers=[],
         boundaries=[],
         primitive_candidates=[],
+        static_flow_candidates=[],
     )
 
     same_file_edges = [
@@ -353,6 +434,7 @@ def test_build_evidence_graph_caps_handler_name_correlations_per_entrypoint():
         workers=workers,
         boundaries=[],
         primitive_candidates=[],
+        static_flow_candidates=[],
     )
 
     handler_edges = [
@@ -403,6 +485,7 @@ def test_build_evidence_graph_caps_total_low_signal_correlations(monkeypatch):
         workers=[],
         boundaries=[],
         primitive_candidates=[],
+        static_flow_candidates=[],
     )
 
     low_signal_edges = [

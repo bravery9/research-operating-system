@@ -4,6 +4,7 @@ from pathlib import Path
 
 from invariant_os.analysis.boundary import infer_boundaries
 from invariant_os.analysis.detectors import detect_consumers, detect_entrypoints, detect_workers
+from invariant_os.analysis.flow import enrich_static_flows
 from invariant_os.analysis.graph import build_evidence_graph
 from invariant_os.analysis.indexer import index_repository
 from invariant_os.analysis.primitives import classify_primitives
@@ -20,6 +21,13 @@ def run_audit(repo_path: Path, config: AuditConfig) -> AuditResult:
     workers = detect_workers(repo_root, files)
     boundaries = infer_boundaries(entrypoints, consumers, workers)
     primitive_candidates = classify_primitives(boundaries, consumers, workers)
+    static_flow_candidates = enrich_static_flows(
+        repo_root=repo_root,
+        files=files,
+        entrypoints=entrypoints,
+        consumers=consumers,
+        workers=workers,
+    )
     evidence_graph = build_evidence_graph(
         files=files,
         entrypoints=entrypoints,
@@ -27,6 +35,7 @@ def run_audit(repo_path: Path, config: AuditConfig) -> AuditResult:
         workers=workers,
         boundaries=boundaries,
         primitive_candidates=primitive_candidates,
+        static_flow_candidates=static_flow_candidates,
     )
 
     summary = AuditSummary(
@@ -36,6 +45,7 @@ def run_audit(repo_path: Path, config: AuditConfig) -> AuditResult:
         workers=len(workers),
         boundaries=len(boundaries),
         primitive_candidates=len(primitive_candidates),
+        static_flow_candidates=len(static_flow_candidates),
     )
 
     return AuditResult(
@@ -46,6 +56,7 @@ def run_audit(repo_path: Path, config: AuditConfig) -> AuditResult:
         workers=workers,
         boundaries=boundaries,
         primitive_candidates=primitive_candidates,
+        static_flow_candidates=static_flow_candidates,
         evidence_graph=evidence_graph,
         summary=summary,
         safety=SafetyMetadata(),

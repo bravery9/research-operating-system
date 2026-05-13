@@ -19,6 +19,10 @@ from invariant_os.core.models import (
     PrimitiveType,
     Project,
     SafetyMetadata,
+    StaticFlowCandidate,
+    StaticFlowSignal,
+    StaticFlowSignalType,
+    StaticFlowTargetType,
     WorkerType,
 )
 
@@ -46,14 +50,17 @@ def test_audit_result_json_dump_includes_schema_tool_and_safety_principle():
             workers=0,
             boundaries=0,
             primitive_candidates=0,
+            static_flow_candidates=0,
         ),
         safety=SafetyMetadata(),
     )
 
     dumped = result.model_dump(mode="json")
 
-    assert dumped["schema_version"] == "0.3"
+    assert dumped["schema_version"] == "0.4"
     assert dumped["tool"] == "invariant-os"
+    assert dumped["static_flow_candidates"] == []
+    assert dumped["summary"]["static_flow_candidates"] == 0
     assert dumped["safety"]["principle"] == "LLM proposes. Tools prove. Human approves."
 
 
@@ -93,6 +100,16 @@ def test_enum_values_are_expected_wire_values():
         "static_analysis_hit",
         "manual_note",
         "test_result",
+    ]
+    assert [item.value for item in StaticFlowTargetType] == ["consumer", "worker"]
+    assert [item.value for item in StaticFlowSignalType] == [
+        "handler_exact",
+        "handler_class",
+        "handler_method",
+        "declared_parameter",
+        "request_parameter",
+        "route_token",
+        "same_file_proximity",
     ]
     assert [item.value for item in Confidence] == ["low", "medium", "high"]
     assert [item.value for item in BoundaryType] == [
@@ -135,6 +152,7 @@ def test_evidence_graph_models_have_expected_wire_values():
         "worker",
         "boundary",
         "primitive",
+        "static_flow",
     ]
     assert [item.value for item in EvidenceGraphEdgeType] == [
         "defined_in",
@@ -144,6 +162,8 @@ def test_evidence_graph_models_have_expected_wire_values():
         "route_to_consumer_candidate",
         "boundary_evidence",
         "primitive_evidence",
+        "static_flow_source",
+        "static_flow_target",
     ]
 
 
@@ -157,13 +177,67 @@ def test_audit_result_defaults_to_empty_evidence_graph_and_schema_03():
             workers=0,
             boundaries=0,
             primitive_candidates=0,
+            static_flow_candidates=0,
         ),
     )
 
     dumped = result.model_dump(mode="json")
 
-    assert dumped["schema_version"] == "0.3"
+    assert dumped["schema_version"] == "0.4"
+    assert dumped["static_flow_candidates"] == []
     assert dumped["evidence_graph"] == {"nodes": [], "edges": []}
+
+
+def test_static_flow_candidate_serializes_evidence_and_signals():
+    evidence = Evidence(
+        id="ev_0001",
+        type=EvidenceType.PATTERN_MATCH,
+        file="WEB-INF/web.xml",
+        line=10,
+        pattern="servlet-class",
+        snippet="com.example.ReportServlet",
+    )
+    candidate = StaticFlowCandidate(
+        id="flow_0001",
+        source_entrypoint_id="ep_0001",
+        target_ref_id="cons_0001",
+        target_type=StaticFlowTargetType.CONSUMER,
+        confidence=Confidence.HIGH,
+        score=110,
+        summary="Candidate static flow from `ep_0001` to `cons_0001` based on handler overlap.",
+        signals=[
+            StaticFlowSignal(
+                type=StaticFlowSignalType.HANDLER_EXACT,
+                term="com.example.ReportServlet",
+                score=90,
+                evidence_ids=["ev_0001"],
+            )
+        ],
+        evidence=[evidence],
+        missing_evidence=["confirm runtime dispatch"],
+    )
+
+    dumped = candidate.model_dump(mode="json")
+
+    assert dumped == {
+        "id": "flow_0001",
+        "source_entrypoint_id": "ep_0001",
+        "target_ref_id": "cons_0001",
+        "target_type": "consumer",
+        "confidence": "high",
+        "score": 110,
+        "summary": "Candidate static flow from `ep_0001` to `cons_0001` based on handler overlap.",
+        "signals": [
+            {
+                "type": "handler_exact",
+                "term": "com.example.ReportServlet",
+                "score": 90,
+                "evidence_ids": ["ev_0001"],
+            }
+        ],
+        "evidence": [evidence.model_dump(mode="json")],
+        "missing_evidence": ["confirm runtime dispatch"],
+    }
 
 
 def test_evidence_graph_edge_stores_candidate_reason_and_evidence_ids():

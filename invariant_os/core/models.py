@@ -43,6 +43,21 @@ class EvidenceType(str, Enum):
     TEST_RESULT = "test_result"
 
 
+class StaticFlowTargetType(str, Enum):
+    CONSUMER = "consumer"
+    WORKER = "worker"
+
+
+class StaticFlowSignalType(str, Enum):
+    HANDLER_EXACT = "handler_exact"
+    HANDLER_CLASS = "handler_class"
+    HANDLER_METHOD = "handler_method"
+    DECLARED_PARAMETER = "declared_parameter"
+    REQUEST_PARAMETER = "request_parameter"
+    ROUTE_TOKEN = "route_token"
+    SAME_FILE_PROXIMITY = "same_file_proximity"
+
+
 class Confidence(str, Enum):
     LOW = "low"
     MEDIUM = "medium"
@@ -88,6 +103,7 @@ class EvidenceGraphNodeType(str, Enum):
     WORKER = "worker"
     BOUNDARY = "boundary"
     PRIMITIVE = "primitive"
+    STATIC_FLOW = "static_flow"
 
 
 class EvidenceGraphEdgeType(str, Enum):
@@ -98,6 +114,8 @@ class EvidenceGraphEdgeType(str, Enum):
     ROUTE_TO_CONSUMER_CANDIDATE = "route_to_consumer_candidate"
     BOUNDARY_EVIDENCE = "boundary_evidence"
     PRIMITIVE_EVIDENCE = "primitive_evidence"
+    STATIC_FLOW_SOURCE = "static_flow_source"
+    STATIC_FLOW_TARGET = "static_flow_target"
 
 
 class Project(BaseModel):
@@ -172,6 +190,26 @@ class PrimitiveCandidate(BaseModel):
     safe_next_steps: list[str] = Field(default_factory=list)
 
 
+class StaticFlowSignal(BaseModel):
+    type: StaticFlowSignalType
+    term: str
+    score: int
+    evidence_ids: list[str] = Field(default_factory=list)
+
+
+class StaticFlowCandidate(BaseModel):
+    id: str
+    source_entrypoint_id: str
+    target_ref_id: str
+    target_type: StaticFlowTargetType
+    confidence: Confidence
+    score: int
+    summary: str
+    signals: list[StaticFlowSignal] = Field(default_factory=list)
+    evidence: list[Evidence] = Field(default_factory=list)
+    missing_evidence: list[str] = Field(default_factory=list)
+
+
 class EvidenceGraphNode(BaseModel):
     id: str
     type: EvidenceGraphNodeType
@@ -205,6 +243,7 @@ class AuditSummary(BaseModel):
     workers: int
     boundaries: int
     primitive_candidates: int
+    static_flow_candidates: int
 
 
 class SafetyMetadata(BaseModel):
@@ -227,8 +266,9 @@ class AuditResult(BaseModel):
     workers: list[Worker] = Field(default_factory=list)
     boundaries: list[BoundaryCandidate] = Field(default_factory=list)
     primitive_candidates: list[PrimitiveCandidate] = Field(default_factory=list)
+    static_flow_candidates: list[StaticFlowCandidate] = Field(default_factory=list)
     evidence_graph: EvidenceGraph = Field(default_factory=EvidenceGraph)
     summary: AuditSummary
     safety: SafetyMetadata = Field(default_factory=SafetyMetadata)
-    schema_version: str = "0.3"
+    schema_version: str = "0.4"
     tool: str = "invariant-os"
