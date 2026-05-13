@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -48,14 +49,22 @@ def test_audit_writes_json_and_markdown_for_fixture(tmp_path):
     assert result.exit_code == 0
     json_path = output_dir / "audit_result.json"
     markdown_path = output_dir / "research_brief.md"
+    graph_path = output_dir / "evidence_graph.json"
     assert json_path.exists()
     assert markdown_path.exists()
+    assert graph_path.exists()
 
     audit_result = AuditResult.model_validate_json(json_path.read_text(encoding="utf-8"))
     assert audit_result.summary.entrypoints > 0
     assert audit_result.summary.workers > 0
     assert audit_result.summary.boundaries > 0
     assert audit_result.summary.primitive_candidates > 0
+    assert audit_result.evidence_graph.nodes
+    assert audit_result.evidence_graph.edges
+    assert any(edge.type.value == "defined_in" for edge in audit_result.evidence_graph.edges)
+    graph_payload = graph_path.read_text(encoding="utf-8")
+    assert '"nodes"' in graph_payload
+    assert '"edges"' in graph_payload
 
 
 def test_audit_writes_java_tomcat_fixture_signals(tmp_path):
@@ -67,10 +76,14 @@ def test_audit_writes_java_tomcat_fixture_signals(tmp_path):
     assert result.exit_code == 0
     json_path = output_dir / "audit_result.json"
     markdown_path = output_dir / "research_brief.md"
+    graph_path = output_dir / "evidence_graph.json"
     audit_result = AuditResult.model_validate_json(json_path.read_text(encoding="utf-8"))
     consumer_types = {consumer.type for consumer in audit_result.consumers}
     boundary_types = {boundary.type for boundary in audit_result.boundaries}
     primitive_types = {candidate.primitive for candidate in audit_result.primitive_candidates}
+
+    assert graph_path.exists()
+    assert audit_result.schema_version == "0.3"
 
     entrypoint_hints = {entrypoint.framework_hint for entrypoint in audit_result.entrypoints}
     assert "tomcat-web-xml" in entrypoint_hints
@@ -96,9 +109,25 @@ def test_audit_writes_java_tomcat_fixture_signals(tmp_path):
     assert PrimitiveType.QUERY_CONTROL in primitive_types
     assert PrimitiveType.DIRECTORY_QUERY_CONTROL in primitive_types
 
+    graph = audit_result.evidence_graph
+    node_labels = {node.label for node in graph.nodes}
+    graph_edge_types = {edge.type.value for edge in graph.edges}
+    assert any("/reports/export" in label or "/legacy/report.do" in label for label in node_labels)
+    assert "defined_in" in graph_edge_types
+    assert "boundary_evidence" in graph_edge_types
+    assert "primitive_evidence" in graph_edge_types
+    assert {
+        "route_to_worker_candidate",
+        "route_to_consumer_candidate",
+    } & graph_edge_types
+    assert len(graph.edges) < 250
+    forbidden_claim_terms = re.compile(r"\b(exploit|rce|compromise|confirmed|vulnerable)\b")
+    assert all(forbidden_claim_terms.search(edge.reason.lower()) is None for edge in graph.edges)
+
     markdown = markdown_path.read_text(encoding="utf-8")
     assert "authorized local repository analysis" in markdown
     assert "does not prove exploitability" in markdown
+    assert "confirmed vulnerable" not in markdown.lower()
 
 
 def test_module_execution_runs_audit_command_and_writes_outputs(tmp_path):
@@ -124,6 +153,7 @@ def test_module_execution_runs_audit_command_and_writes_outputs(tmp_path):
     assert result.returncode == 0, result.stderr
     assert (output_dir / "audit_result.json").exists()
     assert (output_dir / "research_brief.md").exists()
+    assert (output_dir / "evidence_graph.json").exists()
 
 
 def test_audit_rejects_repo_root_as_output_directory(tmp_path):

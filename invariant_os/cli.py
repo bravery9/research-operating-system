@@ -53,7 +53,7 @@ def audit(
         raise typer.BadParameter("output directory must not be the audited repository root")
 
     result = run_audit(repo, _audit_config(repo, output_dir, max_file_bytes))
-    json_path, markdown_path = write_audit_outputs(result, output_dir)
+    json_path, markdown_path, graph_path = write_audit_outputs(result, output_dir)
 
     console.print("InvariantOS audit complete")
     console.print(f"Files indexed: {result.summary.files}")
@@ -63,6 +63,7 @@ def audit(
     console.print(f"Primitive candidates: {result.summary.primitive_candidates}")
     console.print(f"JSON: {json_path}")
     console.print(f"Markdown: {markdown_path}")
+    console.print(f"Evidence graph: {graph_path}")
 
 
 if __name__ == "__main__":

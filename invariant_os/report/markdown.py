@@ -8,9 +8,21 @@ from invariant_os.core.models import (
     Consumer,
     Entrypoint,
     Evidence,
+    EvidenceGraphEdgeType,
     PrimitiveCandidate,
     Worker,
 )
+
+
+_GRAPH_EDGE_PRIORITY = {
+    EvidenceGraphEdgeType.ROUTE_TO_WORKER_CANDIDATE: 0,
+    EvidenceGraphEdgeType.ROUTE_TO_CONSUMER_CANDIDATE: 1,
+    EvidenceGraphEdgeType.HANDLER_NAME_CORRELATION: 2,
+    EvidenceGraphEdgeType.SAME_FILE_CORRELATION: 3,
+    EvidenceGraphEdgeType.BOUNDARY_EVIDENCE: 4,
+    EvidenceGraphEdgeType.PRIMITIVE_EVIDENCE: 5,
+    EvidenceGraphEdgeType.DEFINED_IN: 6,
+}
 
 
 def render_research_brief(result: AuditResult) -> str:
@@ -57,6 +69,10 @@ def render_research_brief(result: AuditResult) -> str:
         "## Primitive Candidates To Investigate",
         "",
         *_render_primitives(result.primitive_candidates),
+        "",
+        "## Evidence Graph Summary",
+        "",
+        *_render_evidence_graph(result),
         "",
         "## Suggested Security Invariants",
         "",
@@ -126,6 +142,28 @@ def _render_primitives(primitives: list[PrimitiveCandidate]) -> list[str]:
         f"Evidence: {_evidence_refs(primitive.evidence)}. Missing evidence: {_join_or_none(primitive.missing_evidence)}"
         for primitive in primitives
     ]
+
+
+def _render_evidence_graph(result: AuditResult) -> list[str]:
+    if not result.evidence_graph.nodes and not result.evidence_graph.edges:
+        return ["No evidence graph candidates were generated."]
+    lines = [
+        f"- Graph nodes: {len(result.evidence_graph.nodes)}",
+        f"- Graph edges: {len(result.evidence_graph.edges)}",
+    ]
+    preview_edges = sorted(
+        result.evidence_graph.edges,
+        key=lambda edge: (_GRAPH_EDGE_PRIORITY.get(edge.type, 99), edge.id),
+    )[:20]
+    for edge in preview_edges:
+        lines.append(
+            f"- `{edge.id}` {edge.type.value} ({edge.confidence.value} confidence): "
+            f"{edge.reason} Evidence: {_join_or_none(edge.evidence_ids)}. "
+            f"Missing evidence: {_join_or_none(edge.missing_evidence)}"
+        )
+    if len(result.evidence_graph.edges) > 20:
+        lines.append("- Additional graph edges are available in `evidence_graph.json`.")
+    return lines
 
 
 def _render_invariants(boundaries: list[BoundaryCandidate]) -> list[str]:

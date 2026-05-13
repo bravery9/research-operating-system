@@ -209,271 +209,207 @@ def detect_entrypoints(repo_root: Path, files: list[FileRecord]) -> list[Entrypo
     entrypoints: list[Entrypoint] = []
     evidence_counter = 1
 
+    def add_entrypoint(
+        *,
+        entrypoint_type: EntrypointType,
+        file: str,
+        line: int,
+        framework_hint: str,
+        pattern: str,
+        snippet: str,
+        method: str | None = None,
+        route_path: str | None = None,
+        handler: str | None = None,
+        message: str | None = None,
+    ) -> None:
+        nonlocal evidence_counter
+        evidence = _evidence("ev_ep", evidence_counter, file, line, pattern, snippet, message=message)
+        evidence_counter += 1
+        entrypoints.append(
+            Entrypoint(
+                id=_detector_id("ep", len(entrypoints) + 1),
+                type=entrypoint_type,
+                file=file,
+                line=line,
+                framework_hint=framework_hint,
+                method=method,
+                route_path=route_path,
+                handler=handler,
+                evidence=[evidence],
+            )
+        )
+
     for record, lines in _iter_indexed_lines(repo_root, files):
         if _is_next_api_file(record.path):
-            first_line = lines[0][1] if lines else ""
-            evidence = _evidence("ev_ep", evidence_counter, record.path, 1, "next_api_route", first_line)
-            evidence_counter += 1
-            entrypoints.append(
-                Entrypoint(
-                    id=_detector_id("ep", len(entrypoints) + 1),
-                    type=EntrypointType.HTTP_ROUTE,
-                    file=record.path,
-                    line=1,
-                    framework_hint="nextjs",
-                    evidence=[evidence],
-                )
+            add_entrypoint(
+                entrypoint_type=EntrypointType.HTTP_ROUTE,
+                file=record.path,
+                line=1,
+                framework_hint="nextjs",
+                pattern="next_api_route",
+                snippet=lines[0][1] if lines else "",
             )
 
         if _is_tomcat_web_xml_file(record.path):
             for line_number, tomcat_pattern, route_path, snippet in _tomcat_web_xml_matches(lines):
-                evidence = _evidence("ev_ep", evidence_counter, record.path, line_number, tomcat_pattern, snippet)
-                evidence_counter += 1
-                entrypoints.append(
-                    Entrypoint(
-                        id=_detector_id("ep", len(entrypoints) + 1),
-                        type=EntrypointType.HTTP_ROUTE,
-                        file=record.path,
-                        line=line_number,
-                        framework_hint="tomcat-web-xml",
-                        route_path=route_path,
-                        evidence=[evidence],
-                    )
+                add_entrypoint(
+                    entrypoint_type=EntrypointType.HTTP_ROUTE,
+                    file=record.path,
+                    line=line_number,
+                    framework_hint="tomcat-web-xml",
+                    pattern=tomcat_pattern,
+                    snippet=snippet,
+                    route_path=route_path,
                 )
             for line_number, method, route_path, snippet in _tomcat_security_constraint_matches(lines):
-                evidence = _evidence(
-                    "ev_ep",
-                    evidence_counter,
-                    record.path,
-                    line_number,
-                    "tomcat_security_constraint",
-                    snippet,
-                )
-                evidence_counter += 1
-                entrypoints.append(
-                    Entrypoint(
-                        id=_detector_id("ep", len(entrypoints) + 1),
-                        type=EntrypointType.HTTP_ROUTE,
-                        file=record.path,
-                        line=line_number,
-                        framework_hint="tomcat-security-constraint",
-                        method=method,
-                        route_path=route_path,
-                        evidence=[evidence],
-                    )
+                add_entrypoint(
+                    entrypoint_type=EntrypointType.HTTP_ROUTE,
+                    file=record.path,
+                    line=line_number,
+                    framework_hint="tomcat-security-constraint",
+                    pattern="tomcat_security_constraint",
+                    snippet=snippet,
+                    method=method,
+                    route_path=route_path,
                 )
 
         if _is_tomcat_server_xml_file(record.path):
             for line_number, route_path, snippet, message in _tomcat_server_xml_matches(lines):
-                evidence = _evidence(
-                    "ev_ep",
-                    evidence_counter,
-                    record.path,
-                    line_number,
-                    "tomcat_connector",
-                    snippet,
+                add_entrypoint(
+                    entrypoint_type=EntrypointType.HTTP_ROUTE,
+                    file=record.path,
+                    line=line_number,
+                    framework_hint="tomcat-connector",
+                    pattern="tomcat_connector",
+                    snippet=snippet,
+                    route_path=route_path,
                     message=message,
-                )
-                evidence_counter += 1
-                entrypoints.append(
-                    Entrypoint(
-                        id=_detector_id("ep", len(entrypoints) + 1),
-                        type=EntrypointType.HTTP_ROUTE,
-                        file=record.path,
-                        line=line_number,
-                        framework_hint="tomcat-connector",
-                        route_path=route_path,
-                        evidence=[evidence],
-                    )
                 )
 
         if _is_zsec_security_xml_file(record.path):
             for line_number, method, route_path, snippet, message in _zsec_security_url_matches(lines):
-                evidence = _evidence(
-                    "ev_ep",
-                    evidence_counter,
-                    record.path,
-                    line_number,
-                    "zsec_security_url",
-                    snippet,
+                add_entrypoint(
+                    entrypoint_type=EntrypointType.HTTP_ROUTE,
+                    file=record.path,
+                    line=line_number,
+                    framework_hint="zsec-security",
+                    pattern="zsec_security_url",
+                    snippet=snippet,
+                    method=method,
+                    route_path=route_path,
                     message=message,
-                )
-                evidence_counter += 1
-                entrypoints.append(
-                    Entrypoint(
-                        id=_detector_id("ep", len(entrypoints) + 1),
-                        type=EntrypointType.HTTP_ROUTE,
-                        file=record.path,
-                        line=line_number,
-                        framework_hint="zsec-security",
-                        method=method,
-                        route_path=route_path,
-                        evidence=[evidence],
-                    )
                 )
 
         if _is_product_api_xml_file(record.path):
             for line_number, route_path, handler, snippet, message in _product_api_xml_matches(lines):
-                evidence = _evidence(
-                    "ev_ep",
-                    evidence_counter,
-                    record.path,
-                    line_number,
-                    "product_api_xml",
-                    snippet,
+                add_entrypoint(
+                    entrypoint_type=EntrypointType.HTTP_ROUTE,
+                    file=record.path,
+                    line=line_number,
+                    framework_hint="product-api-xml",
+                    pattern="product_api_xml",
+                    snippet=snippet,
+                    route_path=route_path,
+                    handler=handler,
                     message=message,
-                )
-                evidence_counter += 1
-                entrypoints.append(
-                    Entrypoint(
-                        id=_detector_id("ep", len(entrypoints) + 1),
-                        type=EntrypointType.HTTP_ROUTE,
-                        file=record.path,
-                        line=line_number,
-                        framework_hint="product-api-xml",
-                        route_path=route_path,
-                        handler=handler,
-                        evidence=[evidence],
-                    )
                 )
 
         if _is_servlet_forward_config_file(record.path):
             for line_number, route_path, handler, snippet, message in _servlet_forward_config_matches(lines):
-                evidence = _evidence(
-                    "ev_ep",
-                    evidence_counter,
-                    record.path,
-                    line_number,
-                    "servlet_forward_config",
-                    snippet,
+                add_entrypoint(
+                    entrypoint_type=EntrypointType.HTTP_ROUTE,
+                    file=record.path,
+                    line=line_number,
+                    framework_hint="servlet-forward-config",
+                    pattern="servlet_forward_config",
+                    snippet=snippet,
+                    route_path=route_path,
+                    handler=handler,
                     message=message,
-                )
-                evidence_counter += 1
-                entrypoints.append(
-                    Entrypoint(
-                        id=_detector_id("ep", len(entrypoints) + 1),
-                        type=EntrypointType.HTTP_ROUTE,
-                        file=record.path,
-                        line=line_number,
-                        framework_hint="servlet-forward-config",
-                        route_path=route_path,
-                        handler=handler,
-                        evidence=[evidence],
-                    )
                 )
 
         if _is_java_file(record.path):
             for java_match in _java_enterprise_matches(lines):
                 line_number, entrypoint_type, framework_hint, method, route_path, handler, snippet, pattern_name = java_match
-                evidence = _evidence("ev_ep", evidence_counter, record.path, line_number, pattern_name, snippet)
-                evidence_counter += 1
-                entrypoints.append(
-                    Entrypoint(
-                        id=_detector_id("ep", len(entrypoints) + 1),
-                        type=entrypoint_type,
-                        file=record.path,
-                        line=line_number,
-                        framework_hint=framework_hint,
-                        method=method,
-                        route_path=route_path,
-                        handler=handler,
-                        evidence=[evidence],
-                    )
+                add_entrypoint(
+                    entrypoint_type=entrypoint_type,
+                    file=record.path,
+                    line=line_number,
+                    framework_hint=framework_hint,
+                    pattern=pattern_name,
+                    snippet=snippet,
+                    method=method,
+                    route_path=route_path,
+                    handler=handler,
                 )
 
         if _is_javascript_url_config_file(record.path):
             for line_number, route_path, snippet in _javascript_url_config_matches(lines):
-                evidence = _evidence("ev_ep", evidence_counter, record.path, line_number, "javascript_url_config", snippet)
-                evidence_counter += 1
-                entrypoints.append(
-                    Entrypoint(
-                        id=_detector_id("ep", len(entrypoints) + 1),
-                        type=EntrypointType.HTTP_ROUTE,
-                        file=record.path,
-                        line=line_number,
-                        framework_hint="javascript-url-config",
-                        route_path=route_path,
-                        evidence=[evidence],
-                    )
+                add_entrypoint(
+                    entrypoint_type=EntrypointType.HTTP_ROUTE,
+                    file=record.path,
+                    line=line_number,
+                    framework_hint="javascript-url-config",
+                    pattern="javascript_url_config",
+                    snippet=snippet,
+                    route_path=route_path,
                 )
 
-        for line_number, route_path, handler, snippet, message in _adap_rest_api_mapping_matches(lines):
-            evidence = _evidence(
-                "ev_ep",
-                evidence_counter,
-                record.path,
-                line_number,
-                "adap_rest_api_mapping",
-                snippet,
-                message=message,
-            )
-            evidence_counter += 1
-            entrypoints.append(
-                Entrypoint(
-                    id=_detector_id("ep", len(entrypoints) + 1),
-                    type=EntrypointType.HTTP_ROUTE,
+        if _has_xml_token(record.path, lines, "ADAPRestApiMapping"):
+            for line_number, route_path, handler, snippet, message in _adap_rest_api_mapping_matches(lines):
+                add_entrypoint(
+                    entrypoint_type=EntrypointType.HTTP_ROUTE,
                     file=record.path,
                     line=line_number,
                     framework_hint="adap-rest-api",
+                    pattern="adap_rest_api_mapping",
+                    snippet=snippet,
                     route_path=route_path,
                     handler=handler,
-                    evidence=[evidence],
+                    message=message,
                 )
-            )
 
         has_urlpatterns = any("urlpatterns" in candidate_line for _, candidate_line in lines)
         if has_urlpatterns:
             for line_number, route, snippet in _django_urlpatterns_matches(lines):
-                evidence = _evidence("ev_ep", evidence_counter, record.path, line_number, "django_urlpatterns", snippet)
-                evidence_counter += 1
-                entrypoints.append(
-                    Entrypoint(
-                        id=_detector_id("ep", len(entrypoints) + 1),
-                        type=EntrypointType.HTTP_ROUTE,
-                        file=record.path,
-                        line=line_number,
-                        framework_hint="django",
-                        route_path=route,
-                        evidence=[evidence],
-                    )
+                add_entrypoint(
+                    entrypoint_type=EntrypointType.HTTP_ROUTE,
+                    file=record.path,
+                    line=line_number,
+                    framework_hint="django",
+                    pattern="django_urlpatterns",
+                    snippet=snippet,
+                    route_path=route,
                 )
 
         for line_number, line in lines:
             spring_mapping = _spring_mapping_from_line(line)
             if spring_mapping is not None:
                 method, route = spring_mapping
-                evidence = _evidence("ev_ep", evidence_counter, record.path, line_number, "spring_mapping", line)
-                evidence_counter += 1
-                entrypoints.append(
-                    Entrypoint(
-                        id=_detector_id("ep", len(entrypoints) + 1),
-                        type=EntrypointType.HTTP_ROUTE,
-                        file=record.path,
-                        line=line_number,
-                        framework_hint="spring",
-                        method=method,
-                        route_path=route,
-                        evidence=[evidence],
-                    )
+                add_entrypoint(
+                    entrypoint_type=EntrypointType.HTTP_ROUTE,
+                    file=record.path,
+                    line=line_number,
+                    framework_hint="spring",
+                    pattern="spring_mapping",
+                    snippet=line,
+                    method=method,
+                    route_path=route,
                 )
 
             for pattern in ENTRYPOINT_PATTERNS:
                 if pattern.pattern in {"django_urlpatterns", "spring_mapping"}:
                     continue
                 for match in pattern.regex.finditer(line):
-                    evidence = _evidence("ev_ep", evidence_counter, record.path, line_number, pattern.pattern, line)
-                    evidence_counter += 1
-                    entrypoints.append(
-                        Entrypoint(
-                            id=_detector_id("ep", len(entrypoints) + 1),
-                            type=pattern.type,
-                            file=record.path,
-                            line=line_number,
-                            framework_hint=pattern.framework_hint,
-                            method=_normalized_method(_optional_group(match, "method")),
-                            route_path=_optional_group(match, "route"),
-                            evidence=[evidence],
-                        )
+                    add_entrypoint(
+                        entrypoint_type=pattern.type,
+                        file=record.path,
+                        line=line_number,
+                        framework_hint=pattern.framework_hint,
+                        pattern=pattern.pattern,
+                        snippet=line,
+                        method=_normalized_method(_optional_group(match, "method")),
+                        route_path=_optional_group(match, "route"),
                     )
 
     return _dedupe_entrypoints(entrypoints)
@@ -547,30 +483,31 @@ def detect_workers(repo_root: Path, files: list[FileRecord]) -> list[Worker]:
     for record, lines in _iter_indexed_lines(repo_root, files):
         record_workers: list[Worker] = []
         has_queue_context = _has_queue_worker_context(record.path, lines)
-        for line_number, snippet, message in _taskengine_task_matches(lines):
-            key = (record.path, f"taskengine_task:{line_number}")
-            evidence = _evidence(
-                "ev_worker",
-                evidence_counter,
-                record.path,
-                line_number,
-                "taskengine_task",
-                snippet,
-                message=message,
-            )
-            evidence_counter += 1
-            worker = Worker(
-                id=_detector_id("worker", len(workers) + 1),
-                type=WorkerType.BACKGROUND_TASK,
-                file=record.path,
-                line=line_number,
-                framework_hint="taskengine",
-                pattern="taskengine_task",
-                evidence=[evidence],
-            )
-            workers.append(worker)
-            record_workers.append(worker)
-            worker_keys.add(key)
+        if _has_xml_token(record.path, lines, "TaskEngine_Task"):
+            for line_number, snippet, message in _taskengine_task_matches(lines):
+                key = (record.path, f"taskengine_task:{line_number}")
+                evidence = _evidence(
+                    "ev_worker",
+                    evidence_counter,
+                    record.path,
+                    line_number,
+                    "taskengine_task",
+                    snippet,
+                    message=message,
+                )
+                evidence_counter += 1
+                worker = Worker(
+                    id=_detector_id("worker", len(workers) + 1),
+                    type=WorkerType.BACKGROUND_TASK,
+                    file=record.path,
+                    line=line_number,
+                    framework_hint="taskengine",
+                    pattern="taskengine_task",
+                    evidence=[evidence],
+                )
+                workers.append(worker)
+                record_workers.append(worker)
+                worker_keys.add(key)
 
         for line_number, line in lines:
             for pattern in WORKER_PATTERNS:
@@ -1089,6 +1026,10 @@ def _is_java_file(relative_path: str) -> bool:
 
 def _is_javascript_url_config_file(relative_path: str) -> bool:
     return Path(relative_path).suffix.lower() in {".js", ".jsx", ".ts", ".tsx", ".cc"}
+
+
+def _has_xml_token(relative_path: str, lines: list[tuple[int, str]], token: str) -> bool:
+    return Path(relative_path).suffix.lower() == ".xml" and any(token in line for _, line in lines)
 
 
 def _strip_xml_comments(text: str) -> str:

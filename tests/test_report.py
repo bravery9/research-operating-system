@@ -5,6 +5,11 @@ from invariant_os.core.models import (
     BoundaryType,
     Confidence,
     Evidence,
+    EvidenceGraph,
+    EvidenceGraphEdge,
+    EvidenceGraphEdgeType,
+    EvidenceGraphNode,
+    EvidenceGraphNodeType,
     EvidenceType,
     PrimitiveCandidate,
     PrimitiveType,
@@ -24,6 +29,7 @@ REQUIRED_SECTIONS = [
     "## Dangerous Consumer Inventory",
     "## Trust Boundary Candidates",
     "## Primitive Candidates To Investigate",
+    "## Evidence Graph Summary",
     "## Suggested Security Invariants",
     "## Missing Evidence",
     "## Safe Manual Review Plan",
@@ -100,6 +106,99 @@ def test_research_brief_references_evidence_ids_and_missing_evidence():
     assert "confirm whether the file path is data-influenced" in markdown
     assert "boundary_0001" in markdown
     assert "primitive_0001" in markdown
+
+
+def test_research_brief_summarizes_evidence_graph_edges():
+    result = _empty_result().model_copy(
+        update={
+            "evidence_graph": EvidenceGraph(
+                nodes=[
+                    EvidenceGraphNode(
+                        id="node_entrypoint_0001",
+                        type=EvidenceGraphNodeType.ENTRYPOINT,
+                        label="POST /import",
+                        ref_id="ep_0001",
+                        file="app.js",
+                        line=3,
+                    ),
+                    EvidenceGraphNode(
+                        id="node_consumer_0001",
+                        type=EvidenceGraphNodeType.CONSUMER,
+                        label="file_operation",
+                        ref_id="cons_0001",
+                        file="app.js",
+                        line=9,
+                    ),
+                ],
+                edges=[
+                    EvidenceGraphEdge(
+                        id="edge_0001",
+                        type=EvidenceGraphEdgeType.SAME_FILE_CORRELATION,
+                        source="node_entrypoint_0001",
+                        target="node_consumer_0001",
+                        confidence=Confidence.MEDIUM,
+                        evidence_ids=["ev_ep_0001", "ev_cons_0001"],
+                        reason="Candidate correlation because both detections are in app.js.",
+                        missing_evidence=["same-file correlation does not prove dataflow"],
+                    )
+                ],
+            )
+        }
+    )
+
+    markdown = render_research_brief(result)
+
+    assert "Evidence Graph Summary" in markdown
+    assert "same_file_correlation" in markdown
+    assert "same-file correlation does not prove dataflow" in markdown
+
+
+def test_research_brief_prioritizes_candidate_graph_edges_over_defined_in_preview():
+    defined_edges = [
+        EvidenceGraphEdge(
+            id=f"edge_{index:04d}",
+            type=EvidenceGraphEdgeType.DEFINED_IN,
+            source=f"node_entrypoint_{index:04d}",
+            target="node_file_0001",
+            confidence=Confidence.HIGH,
+            evidence_ids=[f"ev_{index:04d}"],
+            reason=f"Candidate {index} is defined in `app.js`.",
+            missing_evidence=[],
+        )
+        for index in range(1, 22)
+    ]
+    route_edge = EvidenceGraphEdge(
+        id="edge_9999",
+        type=EvidenceGraphEdgeType.ROUTE_TO_WORKER_CANDIDATE,
+        source="node_entrypoint_0001",
+        target="node_worker_0001",
+        confidence=Confidence.HIGH,
+        evidence_ids=["ev_ep_0001", "ev_worker_0001"],
+        reason="Candidate enterprise route-to-worker link from handler evidence.",
+        missing_evidence=["confirm runtime dispatch"],
+    )
+    result = _empty_result().model_copy(
+        update={
+            "evidence_graph": EvidenceGraph(
+                nodes=[
+                    EvidenceGraphNode(
+                        id="node_file_0001",
+                        type=EvidenceGraphNodeType.FILE,
+                        label="app.js",
+                        file="app.js",
+                    )
+                ],
+                edges=[*defined_edges, route_edge],
+            )
+        }
+    )
+
+    markdown = render_research_brief(result)
+
+    graph_lines = [line for line in markdown.splitlines() if line.startswith("- `edge_")]
+    assert len(graph_lines) == 20
+    assert "route_to_worker_candidate" in "\n".join(graph_lines)
+    assert "Additional graph edges are available in `evidence_graph.json`." in markdown
 
 
 def test_research_brief_uses_candidate_language_without_confirmed_exploitability_claims():

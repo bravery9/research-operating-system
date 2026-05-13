@@ -4,6 +4,7 @@ from pathlib import Path
 
 from invariant_os.analysis.boundary import infer_boundaries
 from invariant_os.analysis.detectors import detect_consumers, detect_entrypoints, detect_workers
+from invariant_os.analysis.graph import build_evidence_graph
 from invariant_os.analysis.indexer import index_repository
 from invariant_os.analysis.primitives import classify_primitives
 from invariant_os.core.config import AuditConfig
@@ -19,6 +20,14 @@ def run_audit(repo_path: Path, config: AuditConfig) -> AuditResult:
     workers = detect_workers(repo_root, files)
     boundaries = infer_boundaries(entrypoints, consumers, workers)
     primitive_candidates = classify_primitives(boundaries, consumers, workers)
+    evidence_graph = build_evidence_graph(
+        files=files,
+        entrypoints=entrypoints,
+        consumers=consumers,
+        workers=workers,
+        boundaries=boundaries,
+        primitive_candidates=primitive_candidates,
+    )
 
     summary = AuditSummary(
         files=len(files),
@@ -37,6 +46,7 @@ def run_audit(repo_path: Path, config: AuditConfig) -> AuditResult:
         workers=workers,
         boundaries=boundaries,
         primitive_candidates=primitive_candidates,
+        evidence_graph=evidence_graph,
         summary=summary,
         safety=SafetyMetadata(),
     )

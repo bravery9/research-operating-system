@@ -1,4 +1,5 @@
 <Rows>
   <TaskEngine_Task task_id="TaskEngine_Task:task_id:3" task_name="EventUpdate" class_name="com.example.task.EventUpdateTask" />
   <TaskEngine_Task task_id="TaskEngine_Task:task_id:18" task_name="ImportLogSchedule" class_name="com.example.importlog.ImportLogTask" />
+  <TaskEngine_Task task_id="TaskEngine_Task:task_id:21" task_name="getReportData" class_name="com.example.ReportHandler" />
 </Rows>

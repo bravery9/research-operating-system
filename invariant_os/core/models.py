@@ -81,6 +81,25 @@ class PrimitiveType(str, Enum):
     DIRECTORY_QUERY_CONTROL = "directory_query_control"
 
 
+class EvidenceGraphNodeType(str, Enum):
+    FILE = "file"
+    ENTRYPOINT = "entrypoint"
+    CONSUMER = "consumer"
+    WORKER = "worker"
+    BOUNDARY = "boundary"
+    PRIMITIVE = "primitive"
+
+
+class EvidenceGraphEdgeType(str, Enum):
+    DEFINED_IN = "defined_in"
+    SAME_FILE_CORRELATION = "same_file_correlation"
+    HANDLER_NAME_CORRELATION = "handler_name_correlation"
+    ROUTE_TO_WORKER_CANDIDATE = "route_to_worker_candidate"
+    ROUTE_TO_CONSUMER_CANDIDATE = "route_to_consumer_candidate"
+    BOUNDARY_EVIDENCE = "boundary_evidence"
+    PRIMITIVE_EVIDENCE = "primitive_evidence"
+
+
 class Project(BaseModel):
     name: str
     root: str
@@ -153,6 +172,32 @@ class PrimitiveCandidate(BaseModel):
     safe_next_steps: list[str] = Field(default_factory=list)
 
 
+class EvidenceGraphNode(BaseModel):
+    id: str
+    type: EvidenceGraphNodeType
+    label: str
+    ref_id: str | None = None
+    file: str | None = None
+    line: int | None = None
+    metadata: dict[str, str] = Field(default_factory=dict)
+
+
+class EvidenceGraphEdge(BaseModel):
+    id: str
+    type: EvidenceGraphEdgeType
+    source: str
+    target: str
+    confidence: Confidence
+    reason: str
+    evidence_ids: list[str] = Field(default_factory=list)
+    missing_evidence: list[str] = Field(default_factory=list)
+
+
+class EvidenceGraph(BaseModel):
+    nodes: list[EvidenceGraphNode] = Field(default_factory=list)
+    edges: list[EvidenceGraphEdge] = Field(default_factory=list)
+
+
 class AuditSummary(BaseModel):
     files: int
     entrypoints: int
@@ -182,7 +227,8 @@ class AuditResult(BaseModel):
     workers: list[Worker] = Field(default_factory=list)
     boundaries: list[BoundaryCandidate] = Field(default_factory=list)
     primitive_candidates: list[PrimitiveCandidate] = Field(default_factory=list)
+    evidence_graph: EvidenceGraph = Field(default_factory=EvidenceGraph)
     summary: AuditSummary
     safety: SafetyMetadata = Field(default_factory=SafetyMetadata)
-    schema_version: str = "0.1"
+    schema_version: str = "0.3"
     tool: str = "invariant-os"

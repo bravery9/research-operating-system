@@ -9,6 +9,11 @@ from invariant_os.core.models import (
     ConsumerType,
     EntrypointType,
     Evidence,
+    EvidenceGraph,
+    EvidenceGraphEdge,
+    EvidenceGraphEdgeType,
+    EvidenceGraphNode,
+    EvidenceGraphNodeType,
     EvidenceType,
     FileRecord,
     PrimitiveType,
@@ -47,7 +52,7 @@ def test_audit_result_json_dump_includes_schema_tool_and_safety_principle():
 
     dumped = result.model_dump(mode="json")
 
-    assert dumped["schema_version"] == "0.1"
+    assert dumped["schema_version"] == "0.3"
     assert dumped["tool"] == "invariant-os"
     assert dumped["safety"]["principle"] == "LLM proposes. Tools prove. Human approves."
 
@@ -120,6 +125,83 @@ def test_enum_values_are_expected_wire_values():
         "query_control",
         "directory_query_control",
     ]
+
+
+def test_evidence_graph_models_have_expected_wire_values():
+    assert [item.value for item in EvidenceGraphNodeType] == [
+        "file",
+        "entrypoint",
+        "consumer",
+        "worker",
+        "boundary",
+        "primitive",
+    ]
+    assert [item.value for item in EvidenceGraphEdgeType] == [
+        "defined_in",
+        "same_file_correlation",
+        "handler_name_correlation",
+        "route_to_worker_candidate",
+        "route_to_consumer_candidate",
+        "boundary_evidence",
+        "primitive_evidence",
+    ]
+
+
+def test_audit_result_defaults_to_empty_evidence_graph_and_schema_03():
+    result = AuditResult(
+        project=Project(name="example", root="/repo"),
+        summary=AuditSummary(
+            files=0,
+            entrypoints=0,
+            consumers=0,
+            workers=0,
+            boundaries=0,
+            primitive_candidates=0,
+        ),
+    )
+
+    dumped = result.model_dump(mode="json")
+
+    assert dumped["schema_version"] == "0.3"
+    assert dumped["evidence_graph"] == {"nodes": [], "edges": []}
+
+
+def test_evidence_graph_edge_stores_candidate_reason_and_evidence_ids():
+    graph = EvidenceGraph(
+        nodes=[
+            EvidenceGraphNode(
+                id="node_entrypoint_0001",
+                type=EvidenceGraphNodeType.ENTRYPOINT,
+                label="POST /import",
+                ref_id="ep_0001",
+                file="app.js",
+                line=12,
+            ),
+            EvidenceGraphNode(
+                id="node_consumer_0001",
+                type=EvidenceGraphNodeType.CONSUMER,
+                label="file_operation",
+                ref_id="cons_0001",
+                file="app.js",
+                line=20,
+            ),
+        ],
+        edges=[
+            EvidenceGraphEdge(
+                id="edge_0001",
+                type=EvidenceGraphEdgeType.SAME_FILE_CORRELATION,
+                source="node_entrypoint_0001",
+                target="node_consumer_0001",
+                confidence=Confidence.MEDIUM,
+                evidence_ids=["ev_ep_0001", "ev_cons_0001"],
+                reason="Candidate correlation because both detections are in app.js.",
+                missing_evidence=["confirm whether request data reaches this consumer"],
+            )
+        ],
+    )
+
+    assert graph.edges[0].reason.startswith("Candidate correlation")
+    assert graph.edges[0].missing_evidence == ["confirm whether request data reaches this consumer"]
 
 
 def test_evidence_stores_file_and_line():
