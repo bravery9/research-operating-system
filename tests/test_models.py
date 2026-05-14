@@ -16,6 +16,16 @@ from invariant_os.core.models import (
     EvidenceGraphNodeType,
     EvidenceType,
     FileRecord,
+    PatchChangedFile,
+    PatchChangeType,
+    PatchCorrelation,
+    PatchCorrelationType,
+    PatchDiffInputType,
+    PatchDiffResult,
+    PatchDiffSummary,
+    PatchHunk,
+    PatchVariantCandidate,
+    PatchVariantSourceType,
     PrimitiveType,
     Project,
     SafetyMetadata,
@@ -57,11 +67,22 @@ def test_audit_result_json_dump_includes_schema_tool_and_safety_principle():
 
     dumped = result.model_dump(mode="json")
 
-    assert dumped["schema_version"] == "0.4"
+    assert dumped["schema_version"] == "0.5"
     assert dumped["tool"] == "invariant-os"
     assert dumped["static_flow_candidates"] == []
     assert dumped["summary"]["static_flow_candidates"] == 0
     assert dumped["safety"]["principle"] == "LLM proposes. Tools prove. Human approves."
+
+
+def test_default_safety_metadata_includes_static_workspace_limitations():
+    limitations = " ".join(SafetyMetadata().limitations).lower()
+
+    assert "target code execution" in limitations
+    assert "network" in limitations
+    assert "public target scanning" in limitations
+    assert "exploit payload" in limitations
+    assert "static candidates" in limitations
+    assert "human review" in limitations
 
 
 def test_enum_values_are_expected_wire_values():
@@ -142,6 +163,24 @@ def test_enum_values_are_expected_wire_values():
         "query_control",
         "directory_query_control",
     ]
+    assert [item.value for item in PatchDiffInputType] == ["patch_file", "git_diff"]
+    assert [item.value for item in PatchChangeType] == [
+        "added",
+        "modified",
+        "deleted",
+        "renamed",
+    ]
+    assert [item.value for item in PatchCorrelationType] == [
+        "line_overlap",
+        "line_proximity",
+        "same_file",
+    ]
+    assert [item.value for item in PatchVariantSourceType] == [
+        "evidence",
+        "boundary",
+        "primitive",
+        "static_flow",
+    ]
 
 
 def test_evidence_graph_models_have_expected_wire_values():
@@ -167,7 +206,7 @@ def test_evidence_graph_models_have_expected_wire_values():
     ]
 
 
-def test_audit_result_defaults_to_empty_evidence_graph_and_schema_03():
+def test_audit_result_defaults_to_empty_evidence_graph_and_schema_05():
     result = AuditResult(
         project=Project(name="example", root="/repo"),
         summary=AuditSummary(
@@ -183,9 +222,95 @@ def test_audit_result_defaults_to_empty_evidence_graph_and_schema_03():
 
     dumped = result.model_dump(mode="json")
 
-    assert dumped["schema_version"] == "0.4"
+    assert dumped["schema_version"] == "0.5"
     assert dumped["static_flow_candidates"] == []
     assert dumped["evidence_graph"] == {"nodes": [], "edges": []}
+
+
+def test_patch_diff_result_defaults_to_schema_07_and_safe_metadata():
+    result = PatchDiffResult(
+        source_schema_version="0.5",
+        source_project=Project(name="example", root="/repo"),
+        source_audit_file="/repo/audit_result.json",
+        input_type=PatchDiffInputType.PATCH_FILE,
+        patch_file="/repo/change.patch",
+        changed_files=[
+            PatchChangedFile(
+                id="patch_file_0001",
+                old_path="app.py",
+                new_path="app.py",
+                change_type=PatchChangeType.MODIFIED,
+                hunks=[
+                    PatchHunk(
+                        id="patch_hunk_0001_0001",
+                        old_start=10,
+                        old_count=3,
+                        new_start=10,
+                        new_count=4,
+                        added_lines=[12],
+                        removed_lines=[11],
+                        context="handler",
+                    )
+                ],
+            )
+        ],
+        correlations=[
+            PatchCorrelation(
+                id="patch_corr_0001",
+                type=PatchCorrelationType.LINE_OVERLAP,
+                changed_file_id="patch_file_0001",
+                hunk_id="patch_hunk_0001_0001",
+                related_id="primitive_0001",
+                related_type=PatchVariantSourceType.PRIMITIVE,
+                file="app.py",
+                line=12,
+                confidence=Confidence.MEDIUM,
+                reason="Candidate correlation because changed lines overlap existing audit evidence.",
+                evidence_ids=["ev_0001"],
+                missing_evidence=[
+                    "confirm whether the changed code affects the audited path before drawing conclusions"
+                ],
+            )
+        ],
+        variant_candidates=[
+            PatchVariantCandidate(
+                id="patch_variant_0001",
+                source_type=PatchVariantSourceType.PRIMITIVE,
+                source_id="primitive_0001",
+                changed_file_id="patch_file_0001",
+                hunk_id="patch_hunk_0001_0001",
+                confidence=Confidence.MEDIUM,
+                title="Patch-adjacent primitive hypothesis primitive_0001",
+                summary="Candidate variant review item only.",
+                related_ids=["primitive_0001"],
+                evidence_ids=["ev_0001"],
+                missing_evidence=[
+                    "confirm data origin, validation, authorization, and sink semantics with benign local review"
+                ],
+                safe_next_steps=[
+                    "Review the changed lines and linked audit evidence locally without executing target code."
+                ],
+            )
+        ],
+        summary=PatchDiffSummary(
+            changed_files=1,
+            hunks=1,
+            correlations=1,
+            variant_candidates=1,
+            files_with_audit_context=1,
+        ),
+    )
+
+    dumped = result.model_dump(mode="json")
+
+    assert dumped["schema_version"] == "0.7"
+    assert dumped["tool"] == "invariant-os"
+    assert dumped["input_type"] == "patch_file"
+    assert dumped["changed_files"][0]["change_type"] == "modified"
+    assert dumped["correlations"][0]["type"] == "line_overlap"
+    assert dumped["variant_candidates"][0]["source_type"] == "primitive"
+    assert dumped["safety"]["principle"] == "LLM proposes. Tools prove. Human approves."
+
 
 
 def test_static_flow_candidate_serializes_evidence_and_signals():

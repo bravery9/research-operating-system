@@ -118,6 +118,39 @@ class EvidenceGraphEdgeType(str, Enum):
     STATIC_FLOW_TARGET = "static_flow_target"
 
 
+class ReasoningCategory(str, Enum):
+    HIGH_VALUE_SURFACE = "high_value_surface"
+    SECURITY_INVARIANT_HYPOTHESIS = "security_invariant_hypothesis"
+    PRIMITIVE_TRIAGE = "primitive_triage"
+    MISSING_EVIDENCE = "missing_evidence"
+    SAFE_NEXT_STEP = "safe_next_step"
+
+
+class PatchDiffInputType(str, Enum):
+    PATCH_FILE = "patch_file"
+    GIT_DIFF = "git_diff"
+
+
+class PatchChangeType(str, Enum):
+    ADDED = "added"
+    MODIFIED = "modified"
+    DELETED = "deleted"
+    RENAMED = "renamed"
+
+
+class PatchCorrelationType(str, Enum):
+    LINE_OVERLAP = "line_overlap"
+    LINE_PROXIMITY = "line_proximity"
+    SAME_FILE = "same_file"
+
+
+class PatchVariantSourceType(str, Enum):
+    EVIDENCE = "evidence"
+    BOUNDARY = "boundary"
+    PRIMITIVE = "primitive"
+    STATIC_FLOW = "static_flow"
+
+
 class Project(BaseModel):
     name: str
     root: str
@@ -254,8 +287,117 @@ class SafetyMetadata(BaseModel):
             "No exploitability claims",
             "No public target scanning",
             "No exploit payload generation",
+            "No target code execution",
+            "No network or public target scanning",
+            "Static candidates and hypotheses require human review",
         ]
     )
+
+
+class ReasoningItem(BaseModel):
+    id: str
+    category: ReasoningCategory
+    title: str
+    summary: str
+    confidence: Confidence
+    related_ids: list[str] = Field(default_factory=list)
+    evidence_ids: list[str] = Field(default_factory=list)
+    missing_evidence: list[str] = Field(default_factory=list)
+    safe_next_steps: list[str] = Field(default_factory=list)
+
+
+class ReasoningSummary(BaseModel):
+    high_value_surfaces: int
+    invariant_hypotheses: int
+    primitive_triage_items: int
+    missing_evidence_items: int
+    safe_next_steps: int
+
+
+class ReasoningResult(BaseModel):
+    source_schema_version: str
+    source_project: Project
+    source_audit_file: str
+    items: list[ReasoningItem] = Field(default_factory=list)
+    summary: ReasoningSummary
+    safety: SafetyMetadata = Field(default_factory=SafetyMetadata)
+    schema_version: str = "0.6"
+    tool: str = "invariant-os"
+
+
+class PatchHunk(BaseModel):
+    id: str
+    old_start: int
+    old_count: int
+    new_start: int
+    new_count: int
+    added_lines: list[int] = Field(default_factory=list)
+    removed_lines: list[int] = Field(default_factory=list)
+    context: str | None = None
+
+
+class PatchChangedFile(BaseModel):
+    id: str
+    old_path: str | None = None
+    new_path: str | None = None
+    change_type: PatchChangeType
+    hunks: list[PatchHunk] = Field(default_factory=list)
+
+
+class PatchCorrelation(BaseModel):
+    id: str
+    type: PatchCorrelationType
+    changed_file_id: str
+    hunk_id: str | None = None
+    related_id: str
+    related_type: PatchVariantSourceType
+    file: str
+    line: int | None = None
+    confidence: Confidence
+    reason: str
+    evidence_ids: list[str] = Field(default_factory=list)
+    missing_evidence: list[str] = Field(default_factory=list)
+
+
+class PatchVariantCandidate(BaseModel):
+    id: str
+    source_type: PatchVariantSourceType
+    source_id: str
+    changed_file_id: str
+    hunk_id: str | None = None
+    confidence: Confidence
+    title: str
+    summary: str
+    related_ids: list[str] = Field(default_factory=list)
+    evidence_ids: list[str] = Field(default_factory=list)
+    missing_evidence: list[str] = Field(default_factory=list)
+    safe_next_steps: list[str] = Field(default_factory=list)
+
+
+class PatchDiffSummary(BaseModel):
+    changed_files: int
+    hunks: int
+    correlations: int
+    variant_candidates: int
+    files_with_audit_context: int
+
+
+class PatchDiffResult(BaseModel):
+    source_schema_version: str
+    source_project: Project
+    source_audit_file: str
+    input_type: PatchDiffInputType
+    patch_file: str | None = None
+    repo_path: str | None = None
+    base_ref: str | None = None
+    head_ref: str | None = None
+    changed_files: list[PatchChangedFile] = Field(default_factory=list)
+    correlations: list[PatchCorrelation] = Field(default_factory=list)
+    variant_candidates: list[PatchVariantCandidate] = Field(default_factory=list)
+    summary: PatchDiffSummary
+    safety: SafetyMetadata = Field(default_factory=SafetyMetadata)
+    schema_version: str = "0.7"
+    tool: str = "invariant-os"
 
 
 class AuditResult(BaseModel):
@@ -270,5 +412,5 @@ class AuditResult(BaseModel):
     evidence_graph: EvidenceGraph = Field(default_factory=EvidenceGraph)
     summary: AuditSummary
     safety: SafetyMetadata = Field(default_factory=SafetyMetadata)
-    schema_version: str = "0.4"
+    schema_version: str = "0.5"
     tool: str = "invariant-os"

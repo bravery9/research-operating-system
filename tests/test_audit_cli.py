@@ -40,7 +40,7 @@ def test_audit_rejects_blank_target():
     assert "local directory" in result.output.lower()
 
 
-def test_audit_writes_json_and_markdown_for_fixture(tmp_path):
+def test_audit_writes_artifacts_for_fixture(tmp_path):
     fixture = Path(__file__).parent / "fixtures" / "mini_express_app"
     output_dir = tmp_path / "audit-output"
 
@@ -50,9 +50,12 @@ def test_audit_writes_json_and_markdown_for_fixture(tmp_path):
     json_path = output_dir / "audit_result.json"
     markdown_path = output_dir / "research_brief.md"
     graph_path = output_dir / "evidence_graph.json"
+    html_path = output_dir / "evidence_viewer.html"
     assert json_path.exists()
     assert markdown_path.exists()
     assert graph_path.exists()
+    assert html_path.exists()
+    assert "Evidence viewer:" in result.output
 
     audit_result = AuditResult.model_validate_json(json_path.read_text(encoding="utf-8"))
     assert audit_result.summary.entrypoints > 0
@@ -77,13 +80,15 @@ def test_audit_writes_java_tomcat_fixture_signals(tmp_path):
     json_path = output_dir / "audit_result.json"
     markdown_path = output_dir / "research_brief.md"
     graph_path = output_dir / "evidence_graph.json"
+    html_path = output_dir / "evidence_viewer.html"
     audit_result = AuditResult.model_validate_json(json_path.read_text(encoding="utf-8"))
     consumer_types = {consumer.type for consumer in audit_result.consumers}
     boundary_types = {boundary.type for boundary in audit_result.boundaries}
     primitive_types = {candidate.primitive for candidate in audit_result.primitive_candidates}
 
     assert graph_path.exists()
-    assert audit_result.schema_version == "0.4"
+    assert html_path.exists()
+    assert audit_result.schema_version == "0.5"
     assert audit_result.static_flow_candidates
     assert audit_result.summary.static_flow_candidates == len(audit_result.static_flow_candidates)
     assert all(candidate.missing_evidence for candidate in audit_result.static_flow_candidates)
@@ -139,6 +144,10 @@ def test_audit_writes_java_tomcat_fixture_signals(tmp_path):
     assert "does not prove exploitability" in markdown
     assert "confirmed vulnerable" not in markdown.lower()
 
+    html = html_path.read_text(encoding="utf-8")
+    assert "InvariantOS Static Evidence Workspace" in html
+    assert "Static Flow/Dataflow Candidates" in html
+
 
 def test_module_execution_runs_audit_command_and_writes_outputs(tmp_path):
     fixture = Path(__file__).parent / "fixtures" / "mini_express_app"
@@ -164,6 +173,7 @@ def test_module_execution_runs_audit_command_and_writes_outputs(tmp_path):
     assert (output_dir / "audit_result.json").exists()
     assert (output_dir / "research_brief.md").exists()
     assert (output_dir / "evidence_graph.json").exists()
+    assert (output_dir / "evidence_viewer.html").exists()
 
 
 def test_audit_rejects_repo_root_as_output_directory(tmp_path):
@@ -189,6 +199,8 @@ def test_audit_empty_repo_writes_outputs_without_crashing(tmp_path):
     )
     assert audit_result.summary.files == 0
     assert (output_dir / "research_brief.md").exists()
+    assert (output_dir / "evidence_graph.json").exists()
+    assert (output_dir / "evidence_viewer.html").exists()
 
 
 def test_repeated_audit_ignores_default_output_directory_inside_repo(tmp_path):
