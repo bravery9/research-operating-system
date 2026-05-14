@@ -6,7 +6,7 @@ Core principle: LLM proposes. Tools prove. Human approves.
 
 ## Safety Model
 
-InvariantOS analyzes only local directories that the operator is authorized to review. Reports use candidate, hypothesis, and missing-evidence language. The tool does not scan public targets, generate exploit payloads, execute target code, or claim exploitability. The static evidence viewer is a local file artifact; it does not start a server, fetch remote resources, scan targets, execute target code, or generate exploit payloads. The `reason` command reads structured audit JSON only and runs deterministic offline reasoning without a network LLM provider. The `patch-diff` command consumes only local audit artifacts plus local patch or git-diff data, and does not apply patches, check out refs, fetch network resources, or execute target code.
+InvariantOS analyzes only local directories that the operator is authorized to review. Reports use candidate, hypothesis, and missing-evidence language. The tool does not scan public targets, generate exploit payloads, execute target code, or claim exploitability. The static evidence viewer is a local file artifact; it does not start a server, fetch remote resources, scan targets, execute target code, or generate exploit payloads. SARIF export is generated locally from existing audit evidence as manual-review candidates; it is not Semgrep output and does not run Semgrep. The `reason` command reads structured audit JSON only and runs deterministic offline reasoning without a network LLM provider. The `patch-diff` command consumes only local audit artifacts plus local patch or git-diff data, and does not apply patches, check out refs, fetch network resources, or execute target code.
 
 ## Install
 
@@ -40,6 +40,51 @@ Options:
 
 - `--output-dir`: directory for generated artifacts. Defaults to `outputs`.
 - `--max-file-bytes`: skip files larger than this value. Defaults to `1000000`.
+- `--config`: local `invariant-os.yml` config file for per-repository tuning. If omitted, `<repo>/invariant-os.yml` is loaded when present.
+
+### Configuration
+
+`audit` can load a local YAML config file to tune indexing, detector selection, and bounded static-flow output without changing the safety model:
+
+```yaml
+project:
+  name: acme-app
+  scope: local_authorized_repo
+
+ignore:
+  dirs:
+    - generated
+  paths:
+    - fixtures/large
+
+focus:
+  files:
+    - src/
+    - conf/
+  detectors:
+    entrypoints:
+      include: []
+      exclude:
+        - generic_graphql
+    consumers:
+      include: []
+      exclude: []
+    workers:
+      include: []
+      exclude: []
+
+flow:
+  max_candidates_total: 250
+  max_candidates_per_entrypoint: 5
+
+llm:
+  enabled: false
+
+semgrep:
+  enabled: false
+```
+
+Precedence is built-in defaults, auto-discovered `<repo>/invariant-os.yml`, explicit `--config`, CLI scalar overrides such as `--max-file-bytes`, then runtime output-directory ignores. Config paths must be local repository-relative paths and detector names must be known built-in pattern names. `llm.enabled` and `semgrep.enabled` must currently remain `false`; config files do not enable network calls, external tool execution, target code execution, exploit payload generation, or vulnerability confirmation.
 
 ### `reason`
 
@@ -80,6 +125,7 @@ The v0.7 patch-diff layer parses changed files and hunks, links them to existing
 ## Output Files
 
 - `audit_result.json`: stable structured audit output containing indexed files, detections, boundary candidates, primitive candidates, static flow/dataflow candidates, evidence graph, summary counts, and safety metadata.
+- `audit_result.sarif.json`: deterministic SARIF 2.1.0 export generated from existing audit evidence as conservative manual-review candidates; it is not Semgrep output and does not run Semgrep.
 - `evidence_graph.json`: deterministic graph of candidate relationships between files, entrypoints, workers, consumers, boundaries, primitives, static-flow source/target edges, and supporting evidence IDs.
 - `research_brief.md`: Markdown research brief with scope, summary, candidates, Static Flow/Dataflow Candidates, evidence graph summary, missing evidence, safe manual review steps, and an evidence index.
 - `evidence_viewer.html`: self-contained local Static Evidence Workspace for browsing candidates, static flows, graph links, evidence records, missing evidence, and safe manual review steps without a server or external assets.
@@ -103,6 +149,7 @@ The v0.7 patch-diff layer parses changed files and hunks, links them to existing
 - Static flow/dataflow enrichment that conservatively links entrypoints to likely consumers or workers using handler metadata, declared parameters, request parameter names, route tokens, and bounded same-file proximity.
 - Evidence graph generation for candidate same-file, handler-name, Java/Enterprise route-to-worker, Java/Enterprise route-to-consumer, static-flow source/target, boundary-evidence, and primitive-evidence correlations, with deterministic pruning/ranking to reduce noisy graph output.
 - Static Evidence Workspace browsing via `evidence_viewer.html` for local review of summary counts, safety scope, candidates, static flows, graph preview, missing evidence, safe next steps, and evidence records.
+- Deterministic SARIF 2.1.0 export via `audit_result.sarif.json` for local manual-review candidate import into SARIF-aware tools without Semgrep execution, target execution, network access, LLM providers, exploit steps, or vulnerability confirmation.
 - Deterministic offline reasoning via `reason_result.json` and `reasoning_brief.md` for high-value surfaces, security invariant hypotheses, primitive triage, missing evidence, and safe next steps derived from existing audit evidence.
 - Deterministic local patch-diff analysis via `patch_diff_result.json` and `patch_diff_brief.md` for linking changed hunks to existing audit evidence and patch-adjacent review hypotheses.
 
@@ -114,6 +161,7 @@ The v0.7 patch-diff layer parses changed files and hunks, links them to existing
 - Java/Enterprise resolver edges are static candidates based on route, handler, metadata, and evidence-token correlation; they do not prove runtime dispatch or dataflow.
 - Static flow/dataflow candidates are heuristic links for review; they do not prove runtime reachability, exploitability, authorization bypass, or request-controlled influence.
 - The static evidence viewer is a browsing aid for static candidates; it does not prove runtime reachability, dataflow, exploitability, or vulnerability presence.
+- SARIF export is a local candidate-evidence projection for manual review; it is not Semgrep output and does not execute Semgrep, inspect public targets, prove exploitability, or confirm vulnerability presence.
 - The `reason` command is deterministic offline reasoning over structured audit JSON only; it does not inspect raw source, call a network LLM provider, prove exploitability, or confirm vulnerability presence.
 - The `patch-diff` command performs deterministic local diff parsing only; it links changed hunks to existing audit evidence by file and line proximity, not confirmed semantic reachability.
 - The `patch-diff` command does not apply patches, check out refs, fetch network resources, execute target code, call a network LLM provider, generate payloads, produce exploit steps, or confirm vulnerability/exploitability.
@@ -128,5 +176,5 @@ The v0.7 patch-diff layer parses changed files and hunks, links them to existing
 - Add richer language and framework detectors.
 - Add optional LLM-assisted hypothesis generation behind the existing safety model.
 - Add evidence graphing and data-flow enrichment.
-- Add SARIF and additional export formats.
-- Add configuration files for per-repository detector tuning.
+- Expand SARIF and additional export formats.
+- Expand configuration files for richer per-repository detector tuning.

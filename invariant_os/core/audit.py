@@ -16,9 +16,9 @@ def run_audit(repo_path: Path, config: AuditConfig) -> AuditResult:
     """Run the deterministic local audit pipeline without invoking an LLM."""
     repo_root = Path(repo_path).resolve()
     files = index_repository(repo_root, config)
-    entrypoints = detect_entrypoints(repo_root, files)
-    consumers = detect_consumers(repo_root, files)
-    workers = detect_workers(repo_root, files)
+    entrypoints = detect_entrypoints(repo_root, files, config)
+    consumers = detect_consumers(repo_root, files, config)
+    workers = detect_workers(repo_root, files, config)
     boundaries = infer_boundaries(entrypoints, consumers, workers)
     primitive_candidates = classify_primitives(boundaries, consumers, workers)
     static_flow_candidates = enrich_static_flows(
@@ -27,6 +27,8 @@ def run_audit(repo_path: Path, config: AuditConfig) -> AuditResult:
         entrypoints=entrypoints,
         consumers=consumers,
         workers=workers,
+        max_candidates_total=config.flow.max_candidates_total,
+        max_candidates_per_entrypoint=config.flow.max_candidates_per_entrypoint,
     )
     evidence_graph = build_evidence_graph(
         files=files,
@@ -49,7 +51,7 @@ def run_audit(repo_path: Path, config: AuditConfig) -> AuditResult:
     )
 
     return AuditResult(
-        project=Project(name=repo_root.name, root=repo_root.as_posix()),
+        project=Project(name=config.project.name or repo_root.name, root=repo_root.as_posix()),
         files=files,
         entrypoints=entrypoints,
         consumers=consumers,

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import re
 
+from invariant_os.core.config import AuditConfig
 from invariant_os.core.models import (
     Consumer,
     ConsumerType,
@@ -205,8 +206,55 @@ TOMCAT_WEB_XML_PATTERNS = [
 ]
 
 
-def detect_entrypoints(repo_root: Path, files: list[FileRecord]) -> list[Entrypoint]:
+def known_entrypoint_patterns() -> set[str]:
+    return {
+        *(pattern.pattern for pattern in ENTRYPOINT_PATTERNS),
+        *(pattern_name for _, pattern_name in TOMCAT_WEB_XML_PATTERNS),
+        "adap_rest_api_mapping",
+        "java_enterprise_handler",
+        "java_soap",
+        "java_webservlet",
+        "javascript_url_config",
+        "jax_rs",
+        "next_api_route",
+        "product_api_xml",
+        "servlet_forward_config",
+        "spring_mapping",
+        "tomcat_connector",
+        "tomcat_security_constraint",
+        "zsec_security_url",
+    }
+
+
+def known_consumer_patterns() -> set[str]:
+    return {
+        *(pattern.pattern for pattern in CONSUMER_PATTERNS),
+        "queue_operation",
+        "zsec_security_control",
+        "zsec_zip_sanitizer",
+    }
+
+
+def known_worker_patterns() -> set[str]:
+    return {
+        *(pattern.pattern for pattern in WORKER_PATTERNS),
+        "path_hint",
+        "queue_process",
+        "taskengine_task",
+    }
+
+
+def known_detector_patterns() -> dict[str, set[str]]:
+    return {
+        "entrypoints": known_entrypoint_patterns(),
+        "consumers": known_consumer_patterns(),
+        "workers": known_worker_patterns(),
+    }
+
+
+def detect_entrypoints(repo_root: Path, files: list[FileRecord], config: AuditConfig | None = None) -> list[Entrypoint]:
     entrypoints: list[Entrypoint] = []
+    allowed_patterns = _allowed_detector_patterns("entrypoints", config)
     evidence_counter = 1
 
     def add_entrypoint(
@@ -223,6 +271,8 @@ def detect_entrypoints(repo_root: Path, files: list[FileRecord]) -> list[Entrypo
         message: str | None = None,
     ) -> None:
         nonlocal evidence_counter
+        if not _is_detector_allowed(pattern, allowed_patterns):
+            return
         evidence = _evidence("ev_ep", evidence_counter, file, line, pattern, snippet, message=message)
         evidence_counter += 1
         entrypoints.append(
@@ -415,14 +465,17 @@ def detect_entrypoints(repo_root: Path, files: list[FileRecord]) -> list[Entrypo
     return _dedupe_entrypoints(entrypoints)
 
 
-def detect_consumers(repo_root: Path, files: list[FileRecord]) -> list[Consumer]:
+def detect_consumers(repo_root: Path, files: list[FileRecord], config: AuditConfig | None = None) -> list[Consumer]:
     consumers: list[Consumer] = []
+    allowed_patterns = _allowed_detector_patterns("consumers", config)
     evidence_counter = 1
 
     for record, lines in _iter_indexed_lines(repo_root, files):
         has_queue_context = _has_queue_worker_context(record.path, lines)
         if _is_zsec_security_xml_file(record.path):
             for line_number, consumer_type, pattern_name, snippet, message in _zsec_security_control_matches(lines):
+                if not _is_detector_allowed(pattern_name, allowed_patterns):
+                    continue
                 evidence = _evidence(
                     "ev_cons",
                     evidence_counter,
@@ -445,7 +498,7 @@ def detect_consumers(repo_root: Path, files: list[FileRecord]) -> list[Consumer]
                 )
         for line_number, line in lines:
             for pattern in CONSUMER_PATTERNS:
-                if pattern.regex.search(line):
+                if _is_detector_allowed(pattern.pattern, allowed_patterns) and pattern.regex.search(line):
                     evidence = _evidence("ev_cons", evidence_counter, record.path, line_number, pattern.pattern, line)
                     evidence_counter += 1
                     consumers.append(
@@ -458,7 +511,7 @@ def detect_consumers(repo_root: Path, files: list[FileRecord]) -> list[Consumer]
                             evidence=[evidence],
                         )
                     )
-            if has_queue_context and BARE_PROCESS_CALL.search(line):
+            if has_queue_context and _is_detector_allowed("queue_operation", allowed_patterns) and BARE_PROCESS_CALL.search(line):
                 evidence = _evidence("ev_cons", evidence_counter, record.path, line_number, "queue_operation", line)
                 evidence_counter += 1
                 consumers.append(
@@ -475,15 +528,16 @@ def detect_consumers(repo_root: Path, files: list[FileRecord]) -> list[Consumer]
     return consumers
 
 
-def detect_workers(repo_root: Path, files: list[FileRecord]) -> list[Worker]:
+def detect_workers(repo_root: Path, files: list[FileRecord], config: AuditConfig | None = None) -> list[Worker]:
     workers: list[Worker] = []
+    allowed_patterns = _allowed_detector_patterns("workers", config)
     evidence_counter = 1
     worker_keys: set[tuple[str, str]] = set()
 
     for record, lines in _iter_indexed_lines(repo_root, files):
         record_workers: list[Worker] = []
         has_queue_context = _has_queue_worker_context(record.path, lines)
-        if _has_xml_token(record.path, lines, "TaskEngine_Task"):
+        if _has_xml_token(record.path, lines, "TaskEngine_Task") and _is_detector_allowed("taskengine_task", allowed_patterns):
             for line_number, snippet, message in _taskengine_task_matches(lines):
                 key = (record.path, f"taskengine_task:{line_number}")
                 evidence = _evidence(
@@ -511,7 +565,7 @@ def detect_workers(repo_root: Path, files: list[FileRecord]) -> list[Worker]:
 
         for line_number, line in lines:
             for pattern in WORKER_PATTERNS:
-                if pattern.regex.search(line):
+                if _is_detector_allowed(pattern.pattern, allowed_patterns) and pattern.regex.search(line):
                     key = (record.path, pattern.pattern)
                     evidence = _evidence("ev_worker", evidence_counter, record.path, line_number, pattern.pattern, line)
                     evidence_counter += 1
@@ -530,7 +584,7 @@ def detect_workers(repo_root: Path, files: list[FileRecord]) -> list[Worker]:
                     workers.append(worker)
                     record_workers.append(worker)
                     worker_keys.add(key)
-            if has_queue_context and BARE_PROCESS_CALL.search(line):
+            if has_queue_context and _is_detector_allowed("queue_process", allowed_patterns) and BARE_PROCESS_CALL.search(line):
                 key = (record.path, "queue_process")
                 evidence = _evidence("ev_worker", evidence_counter, record.path, line_number, "queue_process", line)
                 evidence_counter += 1
@@ -551,7 +605,7 @@ def detect_workers(repo_root: Path, files: list[FileRecord]) -> list[Worker]:
                 worker_keys.add(key)
 
         path_hint = _worker_path_hint(record.path)
-        if path_hint is not None:
+        if path_hint is not None and _is_detector_allowed("path_hint", allowed_patterns):
             first_line = lines[0][1] if lines else ""
             evidence = _evidence("ev_worker", evidence_counter, record.path, 1, f"path_hint:{path_hint}", first_line)
             evidence_counter += 1
@@ -575,6 +629,25 @@ def detect_workers(repo_root: Path, files: list[FileRecord]) -> list[Worker]:
                 worker_keys.add(key)
 
     return workers
+
+
+def _allowed_detector_patterns(detector_type: str, config: AuditConfig | None) -> set[str] | None:
+    if config is None:
+        return None
+    selections = {
+        "entrypoints": config.focus.detectors.entrypoints,
+        "consumers": config.focus.detectors.consumers,
+        "workers": config.focus.detectors.workers,
+    }
+    known = known_detector_patterns()[detector_type]
+    selection = selections[detector_type]
+    allowed = set(selection.include) if selection.include else set(known)
+    allowed.difference_update(selection.exclude)
+    return allowed
+
+
+def _is_detector_allowed(pattern: str, allowed_patterns: set[str] | None) -> bool:
+    return allowed_patterns is None or pattern in allowed_patterns
 
 
 def _dedupe_entrypoints(entrypoints: list[Entrypoint]) -> list[Entrypoint]:

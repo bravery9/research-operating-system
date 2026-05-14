@@ -10,6 +10,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 # Run focused suites
 .venv/bin/pytest tests/test_models.py -v
+.venv/bin/pytest tests/test_config.py -v
+.venv/bin/pytest tests/test_audit_config.py -v
+.venv/bin/pytest tests/test_sarif_report.py -v
 .venv/bin/pytest tests/test_html_report.py -v
 .venv/bin/pytest tests/test_audit_cli.py -v
 .venv/bin/pytest tests/test_reasoning_models.py -v
@@ -33,6 +36,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 # Smoke audit, reasoning, and patch-diff workflow
 .venv/bin/invariant-os audit tests/fixtures/mini_tomcat_app --output-dir outputs/mini-tomcat-v07
+.venv/bin/invariant-os audit tests/fixtures/mini_tomcat_app --config <local-invariant-os.yml> --output-dir outputs/config-smoke
 .venv/bin/invariant-os reason outputs/mini-tomcat-v07/audit_result.json --output-dir outputs/mini-tomcat-v07
 .venv/bin/invariant-os patch-diff outputs/mini-tomcat-v07/audit_result.json --patch-file <local-benign.patch> --output-dir outputs/mini-tomcat-v07
 ```
@@ -55,13 +59,14 @@ The implemented CLI workflow is:
 
 ```text
 local authorized repo
+→ optional local invariant-os.yml config loading
 → deterministic indexing
 → entrypoint / consumer / worker detectors
 → trust-boundary inference
 → primitive candidate classification
 → bounded static flow/dataflow enrichment
 → evidence graph projection
-→ local audit artifacts
+→ local audit artifacts including SARIF export
 → optional deterministic offline reasoning over audit_result.json
 → optional deterministic local patch-diff correlation against audit_result.json
 → local reasoning and patch-diff artifacts for human review
@@ -70,7 +75,7 @@ local authorized repo
 Key components:
 
 - `invariant_os/cli.py`: Typer CLI entrypoint for `invariant-os audit`, `invariant-os reason`, and `invariant-os patch-diff`.
-- `invariant_os/core/`: audit orchestration, config, safety checks, output writing, and Pydantic domain models.
+- `invariant_os/core/`: audit orchestration, local YAML config loading/tuning, safety checks, output writing, and Pydantic domain models.
 - `invariant_os/detectors/`: deterministic detectors for entrypoints, consumers, workers, enterprise Java/Tomcat/ManageEngine XML, and related patterns.
 - `invariant_os/analysis/`: boundary inference, primitive classification, enterprise route correlation, graph building, and static flow enrichment.
 - `invariant_os/reasoning/`: deterministic offline reasoning engine and output writer for `reason_result.json` and `reasoning_brief.md`.
@@ -82,6 +87,7 @@ Generated audit artifacts:
 
 ```text
 outputs/audit_result.json
+outputs/audit_result.sarif.json
 outputs/research_brief.md
 outputs/evidence_graph.json
 outputs/evidence_viewer.html
@@ -103,4 +109,4 @@ outputs/patch_diff_brief.md
 
 ## Reporting guidance
 
-All outputs must remain local, evidence-oriented, and conservative. Use candidate/hypothesis/missing-evidence language. Every substantive claim should point to evidence IDs or explicitly describe missing evidence. The static evidence viewer is a self-contained local HTML file. The `reason` command reads structured audit JSON only and uses deterministic offline reasoning. The `patch-diff` command consumes local audit JSON plus local patch or git-diff input only; it must not apply patches, check out refs, fetch network resources, or execute target code. Do not add a server, remote assets, browser automation, live/network LLM calls, public scanning, target execution, exploit steps, exploit payload generation, or vulnerability/exploitability confirmations.
+All outputs must remain local, evidence-oriented, and conservative. Use candidate/hypothesis/missing-evidence language. Every substantive claim should point to evidence IDs or explicitly describe missing evidence. The static evidence viewer is a self-contained local HTML file. SARIF output is a deterministic local projection of existing audit evidence for manual review; it is not Semgrep output, must not run Semgrep, and must not imply confirmed vulnerability or exploitability. The `audit` command may load local YAML config for indexing, detector tuning, and static-flow caps, but config files must not execute code, fetch network resources, enable LLM providers, or run Semgrep in the current implementation. The `reason` command reads structured audit JSON only and uses deterministic offline reasoning. The `patch-diff` command consumes local audit JSON plus local patch or git-diff input only; it must not apply patches, check out refs, fetch network resources, or execute target code. Do not add a server, remote assets, browser automation, live/network LLM calls, public scanning, target execution, exploit steps, exploit payload generation, or vulnerability/exploitability confirmations.

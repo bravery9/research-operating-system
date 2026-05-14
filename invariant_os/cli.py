@@ -6,7 +6,7 @@ import typer
 from rich.console import Console
 
 from invariant_os.core.audit import run_audit
-from invariant_os.core.config import AuditConfig
+from invariant_os.core.config import AuditConfig, apply_output_dir_ignore, load_audit_config
 from invariant_os.core.models import AuditResult, PatchDiffInputType
 from invariant_os.core.output import write_audit_outputs
 from invariant_os.core.safety import validate_local_repo_path
@@ -27,16 +27,14 @@ def main() -> None:
     """InvariantOS local-first security research workbench."""
 
 
-def _audit_config(repo: Path, output_dir: Path, max_file_bytes: int) -> AuditConfig:
-    config = AuditConfig(max_file_bytes=max_file_bytes)
-    resolved_output_dir = output_dir.resolve()
-    try:
-        relative_output = resolved_output_dir.relative_to(repo)
-    except ValueError:
-        return config
-    if relative_output.parts:
-        config.ignore_paths.add(resolved_output_dir)
-    return config
+def _audit_config(
+    repo: Path,
+    output_dir: Path,
+    max_file_bytes: int | None,
+    config_path: Path | None,
+) -> AuditConfig:
+    config = load_audit_config(repo, config_path, max_file_bytes=max_file_bytes)
+    return apply_output_dir_ignore(config, repo, output_dir)
 
 
 def _validate_local_json_file(path_value: str) -> Path:
@@ -89,9 +87,13 @@ def audit(
         typer.Option("--output-dir", help="Directory for generated audit artifacts."),
     ] = Path("outputs"),
     max_file_bytes: Annotated[
-        int,
+        int | None,
         typer.Option("--max-file-bytes", help="Skip files larger than this many bytes."),
-    ] = 1_000_000,
+    ] = None,
+    config_path: Annotated[
+        Path | None,
+        typer.Option("--config", help="Path to invariant-os YAML config file."),
+    ] = None,
 ) -> None:
     """Run an audit against an authorized local directory."""
     try:
@@ -102,8 +104,13 @@ def audit(
     if output_dir.resolve() == repo:
         raise typer.BadParameter("output directory must not be the audited repository root")
 
-    result = run_audit(repo, _audit_config(repo, output_dir, max_file_bytes))
-    json_path, markdown_path, graph_path, html_path = write_audit_outputs(result, output_dir)
+    try:
+        config = _audit_config(repo, output_dir, max_file_bytes, config_path)
+    except ValueError as error:
+        raise typer.BadParameter(str(error)) from error
+
+    result = run_audit(repo, config)
+    json_path, markdown_path, graph_path, html_path, sarif_path = write_audit_outputs(result, output_dir)
 
     console.print("InvariantOS audit complete")
     console.print(f"Files indexed: {result.summary.files}")
@@ -115,6 +122,7 @@ def audit(
     console.print(f"Markdown: {markdown_path}")
     console.print(f"Evidence graph: {graph_path}")
     console.print(f"Evidence viewer: {html_path}")
+    console.print(f"SARIF: {sarif_path}")
 
 
 @app.command()

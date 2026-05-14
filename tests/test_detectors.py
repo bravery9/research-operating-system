@@ -1165,3 +1165,61 @@ def test_detects_generic_render_template_consumer(tmp_path):
         for consumer in consumers
     )
     _assert_all_detections_have_evidence(consumers)
+
+
+def test_entrypoint_tuning_excludes_generic_graphql(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {"schema.ts": "const resolver = {};\nexport const Mutation = {};\nexport const Query = {};\n"},
+    )
+    config = AuditConfig()
+    config.focus.detectors.entrypoints.exclude = {"generic_graphql"}
+
+    entrypoints = detect_entrypoints(repo_root, files, config)
+
+    assert not any(entrypoint.type == EntrypointType.GRAPHQL_RESOLVER for entrypoint in entrypoints)
+
+
+def test_entrypoint_tuning_include_keeps_only_express_route(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {"app.js": "app.post('/import', handler);\nfunction webhook(request) { return ok; }\n"},
+    )
+    config = AuditConfig()
+    config.focus.detectors.entrypoints.include = {"express_route"}
+
+    entrypoints = detect_entrypoints(repo_root, files, config)
+
+    assert any(entrypoint.route_path == "/import" for entrypoint in entrypoints)
+    assert all(entrypoint.evidence[0].pattern == "express_route" for entrypoint in entrypoints)
+
+
+def test_consumer_tuning_excludes_network_operation_only(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {"main.py": "requests.get(url)\nopen(path)\n"},
+    )
+    config = AuditConfig()
+    config.focus.detectors.consumers.exclude = {"network_operation"}
+
+    consumers = detect_consumers(repo_root, files, config)
+
+    assert any(consumer.type == ConsumerType.FILE_OPERATION for consumer in consumers)
+    assert not any(consumer.type == ConsumerType.NETWORK_OPERATION for consumer in consumers)
+
+
+def test_worker_tuning_include_keeps_only_taskengine(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "conf/taskengine.xml": '<TaskEngine_Task task_name="export" class_name="ExportTask" />\n',
+            "jobs/import.js": "const queue = require('./queue'); queue.process('import', async job => job.data);\n",
+        },
+    )
+    config = AuditConfig()
+    config.focus.detectors.workers.include = {"taskengine_task"}
+
+    workers = detect_workers(repo_root, files, config)
+
+    assert any(worker.pattern == "taskengine_task" for worker in workers)
+    assert all(worker.pattern == "taskengine_task" for worker in workers)

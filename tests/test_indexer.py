@@ -117,3 +117,32 @@ def test_indexer_returns_deterministic_paths_and_stable_hashes(tmp_path):
     assert records[0].sha256 == hashlib.sha256(b"print('a')\n").hexdigest()
     assert len(records[0].sha256) == 64
     assert records[1].language == "unknown"
+
+
+def test_indexer_focus_files_restrict_indexed_records(tmp_path):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "app.py").write_text("print('hi')\n", encoding="utf-8")
+    (tmp_path / "conf").mkdir()
+    (tmp_path / "conf" / "server.xml").write_text("<Server />\n", encoding="utf-8")
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "readme.md").write_text("docs\n", encoding="utf-8")
+
+    config = AuditConfig()
+    config.focus.files = {"src/"}
+
+    records = index_repository(tmp_path, config)
+
+    assert [record.path for record in records] == ["src/app.py"]
+
+
+def test_indexer_ignore_paths_win_over_focus_files(tmp_path):
+    (tmp_path / "src" / "generated").mkdir(parents=True)
+    (tmp_path / "src" / "app.py").write_text("print('hi')\n", encoding="utf-8")
+    (tmp_path / "src" / "generated" / "app.py").write_text("print('generated')\n", encoding="utf-8")
+
+    config = AuditConfig(ignore_paths={(tmp_path / "src" / "generated").resolve()})
+    config.focus.files = {"src/"}
+
+    records = index_repository(tmp_path, config)
+
+    assert [record.path for record in records] == ["src/app.py"]

@@ -51,11 +51,14 @@ def test_audit_writes_artifacts_for_fixture(tmp_path):
     markdown_path = output_dir / "research_brief.md"
     graph_path = output_dir / "evidence_graph.json"
     html_path = output_dir / "evidence_viewer.html"
+    sarif_path = output_dir / "audit_result.sarif.json"
     assert json_path.exists()
     assert markdown_path.exists()
     assert graph_path.exists()
     assert html_path.exists()
+    assert sarif_path.exists()
     assert "Evidence viewer:" in result.output
+    assert "SARIF:" in result.output
 
     audit_result = AuditResult.model_validate_json(json_path.read_text(encoding="utf-8"))
     assert audit_result.summary.entrypoints > 0
@@ -81,6 +84,7 @@ def test_audit_writes_java_tomcat_fixture_signals(tmp_path):
     markdown_path = output_dir / "research_brief.md"
     graph_path = output_dir / "evidence_graph.json"
     html_path = output_dir / "evidence_viewer.html"
+    sarif_path = output_dir / "audit_result.sarif.json"
     audit_result = AuditResult.model_validate_json(json_path.read_text(encoding="utf-8"))
     consumer_types = {consumer.type for consumer in audit_result.consumers}
     boundary_types = {boundary.type for boundary in audit_result.boundaries}
@@ -88,6 +92,7 @@ def test_audit_writes_java_tomcat_fixture_signals(tmp_path):
 
     assert graph_path.exists()
     assert html_path.exists()
+    assert sarif_path.exists()
     assert audit_result.schema_version == "0.5"
     assert audit_result.static_flow_candidates
     assert audit_result.summary.static_flow_candidates == len(audit_result.static_flow_candidates)
@@ -174,6 +179,7 @@ def test_module_execution_runs_audit_command_and_writes_outputs(tmp_path):
     assert (output_dir / "research_brief.md").exists()
     assert (output_dir / "evidence_graph.json").exists()
     assert (output_dir / "evidence_viewer.html").exists()
+    assert (output_dir / "audit_result.sarif.json").exists()
 
 
 def test_audit_rejects_repo_root_as_output_directory(tmp_path):
@@ -201,6 +207,7 @@ def test_audit_empty_repo_writes_outputs_without_crashing(tmp_path):
     assert (output_dir / "research_brief.md").exists()
     assert (output_dir / "evidence_graph.json").exists()
     assert (output_dir / "evidence_viewer.html").exists()
+    assert (output_dir / "audit_result.sarif.json").exists()
 
 
 def test_repeated_audit_ignores_default_output_directory_inside_repo(tmp_path):
@@ -253,3 +260,129 @@ def test_repeated_audit_ignores_nested_output_without_skipping_source_dir(tmp_pa
         (output_dir / "audit_result.json").read_text(encoding="utf-8")
     )
     assert [record.path for record in audit_result.files] == ["src/app.py"]
+
+
+def test_audit_auto_loads_repo_config(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "app.py").write_text("print('hi')\n", encoding="utf-8")
+    (repo / "invariant-os.yml").write_text("project:\n  name: repo-config\n", encoding="utf-8")
+    output_dir = tmp_path / "audit-output"
+
+    result = runner.invoke(app, ["audit", str(repo), "--output-dir", str(output_dir)])
+
+    assert result.exit_code == 0
+    audit_result = AuditResult.model_validate_json(
+        (output_dir / "audit_result.json").read_text(encoding="utf-8")
+    )
+    assert audit_result.project.name == "repo-config"
+
+
+def test_audit_explicit_config_overrides_repo_config(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "app.py").write_text("print('hi')\n", encoding="utf-8")
+    (repo / "invariant-os.yml").write_text("project:\n  name: repo-config\n", encoding="utf-8")
+    explicit_config = tmp_path / "explicit.yml"
+    explicit_config.write_text("project:\n  name: explicit-config\n", encoding="utf-8")
+    output_dir = tmp_path / "audit-output"
+
+    result = runner.invoke(
+        app,
+        ["audit", str(repo), "--config", str(explicit_config), "--output-dir", str(output_dir)],
+    )
+
+    assert result.exit_code == 0
+    audit_result = AuditResult.model_validate_json(
+        (output_dir / "audit_result.json").read_text(encoding="utf-8")
+    )
+    assert audit_result.project.name == "explicit-config"
+
+
+def test_audit_uses_yaml_max_file_bytes_without_cli_override(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "small.py").write_text("x = 1\n", encoding="utf-8")
+    (repo / "large.py").write_text("x" * 20, encoding="utf-8")
+    (repo / "invariant-os.yml").write_text("max_file_bytes: 10\n", encoding="utf-8")
+    output_dir = tmp_path / "audit-output"
+
+    result = runner.invoke(app, ["audit", str(repo), "--output-dir", str(output_dir)])
+
+    assert result.exit_code == 0
+    audit_result = AuditResult.model_validate_json(
+        (output_dir / "audit_result.json").read_text(encoding="utf-8")
+    )
+    assert [record.path for record in audit_result.files] == ["small.py"]
+
+
+def test_audit_max_file_bytes_overrides_yaml_config(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "small.py").write_text("x = 1\n", encoding="utf-8")
+    (repo / "large.py").write_text("x" * 20, encoding="utf-8")
+    (repo / "invariant-os.yml").write_text("max_file_bytes: 100\n", encoding="utf-8")
+    output_dir = tmp_path / "audit-output"
+
+    result = runner.invoke(
+        app,
+        ["audit", str(repo), "--max-file-bytes", "10", "--output-dir", str(output_dir)],
+    )
+
+    assert result.exit_code == 0
+    audit_result = AuditResult.model_validate_json(
+        (output_dir / "audit_result.json").read_text(encoding="utf-8")
+    )
+    assert [record.path for record in audit_result.files] == ["small.py"]
+
+
+def test_audit_rejects_explicit_missing_config(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    result = runner.invoke(app, ["audit", str(repo), "--config", str(tmp_path / "missing.yml")])
+
+    assert result.exit_code != 0
+    assert "config" in result.output.lower()
+
+
+def test_audit_rejects_enabled_llm_config(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    config_path = repo / "invariant-os.yml"
+    config_path.write_text("llm:\n  enabled: true\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["audit", str(repo)])
+
+    assert result.exit_code != 0
+    assert "llm" in result.output.lower()
+
+
+def test_audit_rejects_enabled_semgrep_config(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    config_path = repo / "invariant-os.yml"
+    config_path.write_text("semgrep:\n  enabled: true\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["audit", str(repo)])
+
+    assert result.exit_code != 0
+    assert "semgrep" in result.output.lower()
+
+
+def test_repeated_audit_ignores_output_directory_with_repo_config(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "app.py").write_text("print('hi')\n", encoding="utf-8")
+    (repo / "invariant-os.yml").write_text("project:\n  name: repo-config\n", encoding="utf-8")
+    output_dir = repo / "outputs"
+
+    first = runner.invoke(app, ["audit", str(repo), "--output-dir", str(output_dir)])
+    second = runner.invoke(app, ["audit", str(repo), "--output-dir", str(output_dir)])
+
+    assert first.exit_code == 0
+    assert second.exit_code == 0
+    audit_result = AuditResult.model_validate_json(
+        (output_dir / "audit_result.json").read_text(encoding="utf-8")
+    )
+    assert [record.path for record in audit_result.files] == ["app.py", "invariant-os.yml"]

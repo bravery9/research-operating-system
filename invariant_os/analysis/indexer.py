@@ -40,6 +40,8 @@ def index_repository(repo_root: Path, config: AuditConfig) -> list[FileRecord]:
                 continue
 
             relative_path = path.relative_to(repo_root).as_posix()
+            if not _matches_focus(relative_path, config.focus.files):
+                continue
             records.append(
                 FileRecord(
                     path=relative_path,
@@ -54,6 +56,21 @@ def index_repository(repo_root: Path, config: AuditConfig) -> list[FileRecord]:
 
 def _is_ignored_path(path: Path, ignored_paths: set[Path]) -> bool:
     return any(path == ignored_path or path.is_relative_to(ignored_path) for ignored_path in ignored_paths)
+
+
+def _matches_focus(relative_path: str, focus_files: set[str]) -> bool:
+    if not focus_files:
+        return True
+    return any(_matches_focus_entry(relative_path, focus) for focus in focus_files)
+
+
+def _matches_focus_entry(relative_path: str, focus: str) -> bool:
+    normalized = focus.strip().replace("\\", "/")
+    while normalized.startswith("./"):
+        normalized = normalized[2:]
+    if normalized.endswith("/"):
+        return relative_path.startswith(normalized)
+    return relative_path == normalized or relative_path.startswith(f"{normalized}/")
 
 
 def _language_for_path(path: Path) -> str:
