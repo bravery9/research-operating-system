@@ -96,6 +96,1253 @@ def test_detects_express_route_queue_file_and_worker():
     assert len(combined_evidence_ids) == len(set(combined_evidence_ids))
 
 
+def test_enriches_express_route_with_static_handler_names(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "app.js": """
+const express = require("express");
+const app = express();
+const router = express.Router();
+
+app.post("/import", importHandler);
+router.get("/reports", reports.list);
+app.delete("/files/:id", async function deleteFile(req, res) {
+  res.send("ok");
+});
+app.patch("/anonymous", (req, res) => res.send("ok"));
+""",
+        },
+    )
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    import_route = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "app.js" and entrypoint.route_path == "/import"
+    )
+    assert import_route.method == "post"
+    assert import_route.handler == "importHandler"
+    assert import_route.evidence[0].pattern == "express_route"
+
+    reports_route = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "app.js" and entrypoint.route_path == "/reports"
+    )
+    assert reports_route.method == "get"
+    assert reports_route.handler == "reports.list"
+    assert reports_route.evidence[0].pattern == "express_route"
+
+    delete_route = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "app.js" and entrypoint.route_path == "/files/:id"
+    )
+    assert delete_route.method == "delete"
+    assert delete_route.handler == "deleteFile"
+    assert delete_route.evidence[0].pattern == "express_route"
+
+    anonymous_route = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "app.js" and entrypoint.route_path == "/anonymous"
+    )
+    assert anonymous_route.method == "patch"
+    assert anonymous_route.handler is None
+    assert anonymous_route.evidence[0].pattern == "express_route"
+
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
+
+
+def test_detects_nestjs_routes_with_controller_prefix_and_handlers(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "src/reports.controller.ts": """
+import { Controller, Delete, Get, Post } from "@nestjs/common";
+
+@Controller("api")
+export class ReportsController {
+  @Get("reports")
+  listReports() {
+    return [];
+  }
+
+  @Post("/imports")
+  createImport() {
+    return "ok";
+  }
+
+  @Delete(":id")
+  deleteFile() {
+    return "ok";
+  }
+
+  @Get(dynamicPath)
+  ignored() {
+    return "ignored";
+  }
+}
+""",
+        },
+    )
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    reports = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "src/reports.controller.ts" and entrypoint.route_path == "/api/reports"
+    )
+    assert reports.method == "get"
+    assert reports.handler == "ReportsController#listReports"
+    assert reports.evidence[0].pattern == "nestjs_route"
+
+    imports = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "src/reports.controller.ts" and entrypoint.route_path == "/api/imports"
+    )
+    assert imports.method == "post"
+    assert imports.handler == "ReportsController#createImport"
+    assert imports.evidence[0].pattern == "nestjs_route"
+
+    deleted = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "src/reports.controller.ts" and entrypoint.route_path == "/api/:id"
+    )
+    assert deleted.method == "delete"
+    assert deleted.handler == "ReportsController#deleteFile"
+    assert deleted.evidence[0].pattern == "nestjs_route"
+
+    assert not any(entrypoint.handler == "ReportsController#ignored" for entrypoint in entrypoints)
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
+
+
+def test_detects_hapi_routes_with_static_handlers(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "server.js": """
+const Hapi = require("@hapi/hapi");
+const server = Hapi.server({ port: 3000 });
+
+server.route({ method: "GET", path: "/reports", handler: listReports });
+server.route({ method: "POST", path: "/imports", handler: imports.create });
+server.route({
+  method: "DELETE",
+  path: "/files/{id}",
+  handler: FileController.delete,
+});
+server.route({ method: "GET", path: dynamicPath, handler: ignored });
+""",
+        },
+    )
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    reports = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "server.js" and entrypoint.route_path == "/reports"
+    )
+    assert reports.method == "get"
+    assert reports.handler == "listReports"
+    assert reports.evidence[0].pattern == "hapi_route"
+
+    imports = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "server.js" and entrypoint.route_path == "/imports"
+    )
+    assert imports.method == "post"
+    assert imports.handler == "imports.create"
+    assert imports.evidence[0].pattern == "hapi_route"
+
+    files = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "server.js" and entrypoint.route_path == "/files/{id}"
+    )
+    assert files.method == "delete"
+    assert files.handler == "FileController.delete"
+    assert files.evidence[0].pattern == "hapi_route"
+
+    assert not any(entrypoint.handler == "ignored" for entrypoint in entrypoints)
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
+
+
+def test_detects_go_http_routes_with_static_handlers(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "server.go": """
+package main
+
+func main() {
+    r.GET("/imports", importHandler)
+    router.Post("/reports", reports.Create)
+    http.HandleFunc("/health", healthHandler)
+    mux.Handle("/assets/", fileServer)
+    r.Delete("/anonymous", func(w http.ResponseWriter, r *http.Request) {})
+}
+""",
+        },
+    )
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    imports = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "server.go" and entrypoint.route_path == "/imports"
+    )
+    assert imports.method == "get"
+    assert imports.handler == "importHandler"
+    assert imports.evidence[0].pattern == "go_route"
+
+    reports = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "server.go" and entrypoint.route_path == "/reports"
+    )
+    assert reports.method == "post"
+    assert reports.handler == "reports.Create"
+    assert reports.evidence[0].pattern == "go_route"
+
+    health = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "server.go" and entrypoint.route_path == "/health"
+    )
+    assert health.method is None
+    assert health.handler == "healthHandler"
+    assert health.evidence[0].pattern == "go_route"
+
+    assets = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "server.go" and entrypoint.route_path == "/assets/"
+    )
+    assert assets.method is None
+    assert assets.handler == "fileServer"
+    assert assets.evidence[0].pattern == "go_route"
+
+    anonymous = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "server.go" and entrypoint.route_path == "/anonymous"
+    )
+    assert anonymous.method == "delete"
+    assert anonymous.handler is None
+    assert anonymous.evidence[0].pattern == "go_route"
+
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
+
+
+def test_detects_rails_routes_with_static_handlers(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "config/routes.rb": """
+Rails.application.routes.draw do
+  get "/reports", to: "reports#index"
+  post "/imports" => "imports#create"
+  delete "/files/:id", to: "files#destroy"
+  match "/search", to: "search#index", via: :post
+  get dynamic_path, to: "ignored#index"
+end
+""",
+        },
+    )
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    reports = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "config/routes.rb" and entrypoint.route_path == "/reports"
+    )
+    assert reports.method == "get"
+    assert reports.handler == "reports#index"
+    assert reports.evidence[0].pattern == "rails_route"
+
+    imports = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "config/routes.rb" and entrypoint.route_path == "/imports"
+    )
+    assert imports.method == "post"
+    assert imports.handler == "imports#create"
+    assert imports.evidence[0].pattern == "rails_route"
+
+    files = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "config/routes.rb" and entrypoint.route_path == "/files/:id"
+    )
+    assert files.method == "delete"
+    assert files.handler == "files#destroy"
+    assert files.evidence[0].pattern == "rails_route"
+
+    search = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "config/routes.rb" and entrypoint.route_path == "/search"
+    )
+    assert search.method == "post"
+    assert search.handler == "search#index"
+    assert search.evidence[0].pattern == "rails_route"
+
+    assert not any(entrypoint.handler == "ignored#index" for entrypoint in entrypoints)
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
+
+
+def test_detects_sinatra_routes_with_static_methods(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "app.rb": """
+require "sinatra"
+
+get "/reports" do
+  "ok"
+end
+
+post "/imports", &method(:create_import)
+
+delete "/files/:id" do |id|
+  "ok"
+end
+
+put dynamic_path do
+  "ignored"
+end
+""",
+        },
+    )
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    reports = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "app.rb" and entrypoint.route_path == "/reports"
+    )
+    assert reports.method == "get"
+    assert reports.handler is None
+    assert reports.evidence[0].pattern == "sinatra_route"
+
+    imports = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "app.rb" and entrypoint.route_path == "/imports"
+    )
+    assert imports.method == "post"
+    assert imports.handler == "create_import"
+    assert imports.evidence[0].pattern == "sinatra_route"
+
+    files_route = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "app.rb" and entrypoint.route_path == "/files/:id"
+    )
+    assert files_route.method == "delete"
+    assert files_route.handler is None
+    assert files_route.evidence[0].pattern == "sinatra_route"
+
+    assert not any(entrypoint.route_path == "dynamic_path" for entrypoint in entrypoints)
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
+
+
+def test_detects_laravel_routes_with_static_handlers(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "routes/web.php": """
+<?php
+
+Route::get('/reports', [ReportController::class, 'index']);
+Route::post('/imports', 'ImportController@store');
+Route::delete('/files/{id}', [FileController::class, 'destroy']);
+Route::match(['GET', 'POST'], '/search', [SearchController::class, 'index']);
+Route::get($dynamicPath, 'IgnoredController@index');
+""",
+        },
+    )
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    reports = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "routes/web.php" and entrypoint.route_path == "/reports"
+    )
+    assert reports.method == "get"
+    assert reports.handler == "ReportController@index"
+    assert reports.evidence[0].pattern == "laravel_route"
+
+    imports = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "routes/web.php" and entrypoint.route_path == "/imports"
+    )
+    assert imports.method == "post"
+    assert imports.handler == "ImportController@store"
+    assert imports.evidence[0].pattern == "laravel_route"
+
+    files = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "routes/web.php" and entrypoint.route_path == "/files/{id}"
+    )
+    assert files.method == "delete"
+    assert files.handler == "FileController@destroy"
+    assert files.evidence[0].pattern == "laravel_route"
+
+    search = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "routes/web.php" and entrypoint.route_path == "/search"
+    )
+    assert search.method is None
+    assert search.handler == "SearchController@index"
+    assert search.evidence[0].pattern == "laravel_route"
+
+    assert not any(entrypoint.handler == "IgnoredController@index" for entrypoint in entrypoints)
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
+
+
+def test_detects_aspnet_routes_with_static_handlers(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "Controllers/ReportsController.cs": """
+using Microsoft.AspNetCore.Mvc;
+
+[ApiController]
+[Route("api/reports")]
+public class ReportsController : ControllerBase
+{
+    [HttpGet("{id}")]
+    public IActionResult Show() => Ok();
+
+    [HttpPost("imports")]
+    public IActionResult CreateImport() => Ok();
+
+    [HttpDelete("/files/{id}")]
+    public IActionResult DeleteFile() => Ok();
+
+    [HttpPatch]
+    public IActionResult PatchReport() => Ok();
+}
+""",
+        },
+    )
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    show = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "Controllers/ReportsController.cs" and entrypoint.route_path == "/api/reports/{id}"
+    )
+    assert show.method == "get"
+    assert show.handler == "ReportsController#Show"
+    assert show.evidence[0].pattern == "aspnet_route"
+
+    create = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "Controllers/ReportsController.cs" and entrypoint.route_path == "/api/reports/imports"
+    )
+    assert create.method == "post"
+    assert create.handler == "ReportsController#CreateImport"
+    assert create.evidence[0].pattern == "aspnet_route"
+
+    delete = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "Controllers/ReportsController.cs" and entrypoint.route_path == "/files/{id}"
+    )
+    assert delete.method == "delete"
+    assert delete.handler == "ReportsController#DeleteFile"
+    assert delete.evidence[0].pattern == "aspnet_route"
+
+    patch = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "Controllers/ReportsController.cs" and entrypoint.route_path == "/api/reports"
+        and entrypoint.method == "patch"
+    )
+    assert patch.handler == "ReportsController#PatchReport"
+    assert patch.evidence[0].pattern == "aspnet_route"
+
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
+
+
+def test_detects_rust_routes_with_static_handlers(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "src/main.rs": """
+use axum::{routing::{get, post}, Router};
+
+fn app() -> Router {
+    Router::new()
+        .route("/reports", get(list_reports))
+        .route("/imports", post(handlers::create_import))
+        .route("/anonymous", delete(|| async {}))
+}
+
+#[get("/health")]
+async fn health() -> impl Responder { "ok" }
+""",
+        },
+    )
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    reports = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "src/main.rs" and entrypoint.route_path == "/reports"
+    )
+    assert reports.method == "get"
+    assert reports.handler == "list_reports"
+    assert reports.evidence[0].pattern == "rust_route"
+
+    imports = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "src/main.rs" and entrypoint.route_path == "/imports"
+    )
+    assert imports.method == "post"
+    assert imports.handler == "handlers::create_import"
+    assert imports.evidence[0].pattern == "rust_route"
+
+    anonymous = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "src/main.rs" and entrypoint.route_path == "/anonymous"
+    )
+    assert anonymous.method == "delete"
+    assert anonymous.handler is None
+    assert anonymous.evidence[0].pattern == "rust_route"
+
+    health = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "src/main.rs" and entrypoint.route_path == "/health"
+    )
+    assert health.method == "get"
+    assert health.handler == "health"
+    assert health.evidence[0].pattern == "rust_route"
+
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
+
+
+def test_detects_kotlin_routes_with_static_handlers(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "src/main/kotlin/App.kt": """
+import io.ktor.server.routing.*
+
+fun Application.module() {
+    routing {
+        get("/reports", ::listReports)
+        post("/imports") { createImport(call) }
+        delete("/anonymous") { call.respondText("ok") }
+    }
+}
+
+@GetMapping("/spring/reports")
+fun springReports(): String = "ok"
+
+@PostMapping("/spring/imports")
+suspend fun springImport(): String = "ok"
+""",
+        },
+    )
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    reports = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "src/main/kotlin/App.kt" and entrypoint.route_path == "/reports"
+    )
+    assert reports.method == "get"
+    assert reports.handler == "listReports"
+    assert reports.evidence[0].pattern == "kotlin_route"
+
+    imports = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "src/main/kotlin/App.kt" and entrypoint.route_path == "/imports"
+    )
+    assert imports.method == "post"
+    assert imports.handler is None
+    assert imports.evidence[0].pattern == "kotlin_route"
+
+    spring_reports = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "src/main/kotlin/App.kt" and entrypoint.route_path == "/spring/reports"
+    )
+    assert spring_reports.method == "get"
+    assert spring_reports.handler == "springReports"
+    assert spring_reports.evidence[0].pattern == "kotlin_route"
+
+    spring_import = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "src/main/kotlin/App.kt" and entrypoint.route_path == "/spring/imports"
+    )
+    assert spring_import.method == "post"
+    assert spring_import.handler == "springImport"
+    assert spring_import.evidence[0].pattern == "kotlin_route"
+
+    anonymous = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "src/main/kotlin/App.kt" and entrypoint.route_path == "/anonymous"
+    )
+    assert anonymous.method == "delete"
+    assert anonymous.handler is None
+    assert anonymous.evidence[0].pattern == "kotlin_route"
+
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
+
+
+def test_detects_scala_play_routes_with_static_handlers(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "conf/routes": """
+# Routes
+GET     /reports            controllers.ReportController.index
+POST    /imports            controllers.ImportController.create
+DELETE  /files/:id          controllers.FileController.delete(id: Long)
+GET     /ignored            dynamic.handler
+""",
+        },
+    )
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    reports = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "conf/routes" and entrypoint.route_path == "/reports"
+    )
+    assert reports.method == "get"
+    assert reports.handler == "controllers.ReportController.index"
+    assert reports.evidence[0].pattern == "play_route"
+
+    imports = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "conf/routes" and entrypoint.route_path == "/imports"
+    )
+    assert imports.method == "post"
+    assert imports.handler == "controllers.ImportController.create"
+    assert imports.evidence[0].pattern == "play_route"
+
+    files = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "conf/routes" and entrypoint.route_path == "/files/:id"
+    )
+    assert files.method == "delete"
+    assert files.handler == "controllers.FileController.delete"
+    assert files.evidence[0].pattern == "play_route"
+
+    assert not any(entrypoint.handler == "dynamic.handler" for entrypoint in entrypoints)
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
+
+
+def test_detects_phoenix_routes_with_static_handlers(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "lib/demo_web/router.ex": """
+defmodule DemoWeb.Router do
+  use DemoWeb, :router
+
+  scope "/api", DemoWeb do
+    get "/reports", ReportController, :index
+    post "/imports", ImportController, :create
+    delete "/files/:id", FileController, :delete
+    get dynamic_path, IgnoredController, :index
+  end
+end
+""",
+        },
+    )
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    reports = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "lib/demo_web/router.ex" and entrypoint.route_path == "/api/reports"
+    )
+    assert reports.method == "get"
+    assert reports.handler == "DemoWeb.ReportController#index"
+    assert reports.evidence[0].pattern == "phoenix_route"
+
+    imports = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "lib/demo_web/router.ex" and entrypoint.route_path == "/api/imports"
+    )
+    assert imports.method == "post"
+    assert imports.handler == "DemoWeb.ImportController#create"
+    assert imports.evidence[0].pattern == "phoenix_route"
+
+    files = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "lib/demo_web/router.ex" and entrypoint.route_path == "/api/files/:id"
+    )
+    assert files.method == "delete"
+    assert files.handler == "DemoWeb.FileController#delete"
+    assert files.evidence[0].pattern == "phoenix_route"
+
+    assert not any(entrypoint.handler == "DemoWeb.IgnoredController#index" for entrypoint in entrypoints)
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
+
+
+def test_detects_clojure_routes_with_static_handlers(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "src/app/routes.clj": """
+(ns app.routes
+  (:require [compojure.core :refer [GET POST DELETE]]))
+
+(defroutes app-routes
+  (GET "/reports" [] reports/index)
+  (POST "/imports" request imports/create)
+  (DELETE "/files/:id" [] files.destroy/delete)
+  (GET dynamic-path [] ignored/handler))
+""",
+        },
+    )
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    reports = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "src/app/routes.clj" and entrypoint.route_path == "/reports"
+    )
+    assert reports.method == "get"
+    assert reports.handler == "reports/index"
+    assert reports.evidence[0].pattern == "clojure_route"
+
+    imports = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "src/app/routes.clj" and entrypoint.route_path == "/imports"
+    )
+    assert imports.method == "post"
+    assert imports.handler == "imports/create"
+    assert imports.evidence[0].pattern == "clojure_route"
+
+    files = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "src/app/routes.clj" and entrypoint.route_path == "/files/:id"
+    )
+    assert files.method == "delete"
+    assert files.handler == "files.destroy/delete"
+    assert files.evidence[0].pattern == "clojure_route"
+
+    assert not any(entrypoint.handler == "ignored/handler" for entrypoint in entrypoints)
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
+
+
+def test_detects_haskell_servant_routes_with_static_methods(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "src/Api.hs": """
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeOperators #-}
+
+module Api where
+
+import Servant
+
+type API =
+       "reports" :> Get '[JSON] [Text]
+  :<|> "imports" :> ReqBody '[JSON] Text :> Post '[JSON] Text
+  :<|> "files" :> Capture "id" Int :> Delete '[JSON] NoContent
+  :<|> DynamicPath :> Get '[JSON] Text
+""",
+        },
+    )
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    reports = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "src/Api.hs" and entrypoint.route_path == "/reports"
+    )
+    assert reports.method == "get"
+    assert reports.handler is None
+    assert reports.evidence[0].pattern == "servant_route"
+
+    imports = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "src/Api.hs" and entrypoint.route_path == "/imports"
+    )
+    assert imports.method == "post"
+    assert imports.handler is None
+    assert imports.evidence[0].pattern == "servant_route"
+
+    files = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "src/Api.hs" and entrypoint.route_path == "/files/{id}"
+    )
+    assert files.method == "delete"
+    assert files.handler is None
+    assert files.evidence[0].pattern == "servant_route"
+
+    assert not any(entrypoint.route_path == "/DynamicPath" for entrypoint in entrypoints)
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
+
+
+def test_detects_bottle_routes_with_static_handlers(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "app.py": """
+from bottle import route
+
+@route("/reports")
+def list_reports():
+    return "ok"
+
+@route("/imports", method="POST")
+def create_import():
+    return "ok"
+
+@route("/files/<id>", method=["DELETE"])
+def delete_file(id):
+    return "ok"
+
+@route(dynamic_path)
+def ignored():
+    return "ok"
+""",
+        },
+    )
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    reports = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "app.py" and entrypoint.route_path == "/reports"
+    )
+    assert reports.method is None
+    assert reports.handler == "list_reports"
+    assert reports.evidence[0].pattern == "bottle_route"
+
+    imports = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "app.py" and entrypoint.route_path == "/imports"
+    )
+    assert imports.method == "post"
+    assert imports.handler == "create_import"
+    assert imports.evidence[0].pattern == "bottle_route"
+
+    files = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "app.py" and entrypoint.route_path == "/files/<id>"
+    )
+    assert files.method == "delete"
+    assert files.handler == "delete_file"
+    assert files.evidence[0].pattern == "bottle_route"
+
+    assert not any(entrypoint.handler == "ignored" for entrypoint in entrypoints)
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
+
+
+def test_detects_pyramid_routes_with_static_handlers(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "app.py": """
+from pyramid.config import Configurator
+from pyramid.view import view_config
+
+@view_config(route_name="reports", request_method="GET")
+def list_reports(request):
+    return {}
+
+@view_config(route_name="imports", request_method="POST")
+def create_import(request):
+    return {}
+
+@view_config(route_name="dynamic", request_method="DELETE")
+def ignored(request):
+    return {}
+
+config = Configurator()
+config.add_route("reports", "/reports")
+config.add_route(name="imports", pattern="/imports")
+config.add_route("dynamic", dynamic_pattern)
+""",
+        },
+    )
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    reports = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "app.py"
+        and entrypoint.framework_hint == "pyramid"
+        and entrypoint.route_path == "/reports"
+    )
+    assert reports.method == "get"
+    assert reports.handler == "list_reports"
+    assert reports.evidence[0].pattern == "pyramid_route"
+
+    imports = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "app.py"
+        and entrypoint.framework_hint == "pyramid"
+        and entrypoint.route_path == "/imports"
+    )
+    assert imports.method == "post"
+    assert imports.handler == "create_import"
+    assert imports.evidence[0].pattern == "pyramid_route"
+
+    assert not any(
+        entrypoint.framework_hint == "pyramid" and entrypoint.handler == "ignored"
+        for entrypoint in entrypoints
+    )
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
+
+
+def test_detects_starlette_routes_with_static_handlers(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "app.py": """
+from starlette.applications import Starlette
+from starlette.routing import Route
+
+routes = [
+    Route("/reports", list_reports, methods=["GET"]),
+    Route(path="/imports", endpoint=imports.create, methods=["POST"]),
+    Route("/multi", multi_handler, methods=["GET", "POST"]),
+    Route(dynamic_path, ignored, methods=["GET"]),
+]
+
+app = Starlette(routes=routes)
+app.add_route("/files/{id}", delete_file, methods=["DELETE"])
+app.add_route(dynamic_path, ignored)
+""",
+        },
+    )
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    reports = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "app.py"
+        and entrypoint.framework_hint == "starlette"
+        and entrypoint.route_path == "/reports"
+    )
+    assert reports.method == "get"
+    assert reports.handler == "list_reports"
+    assert reports.evidence[0].pattern == "starlette_route"
+
+    imports = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "app.py"
+        and entrypoint.framework_hint == "starlette"
+        and entrypoint.route_path == "/imports"
+    )
+    assert imports.method == "post"
+    assert imports.handler == "imports.create"
+    assert imports.evidence[0].pattern == "starlette_route"
+
+    multi = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "app.py"
+        and entrypoint.framework_hint == "starlette"
+        and entrypoint.route_path == "/multi"
+    )
+    assert multi.method is None
+    assert multi.handler == "multi_handler"
+    assert multi.evidence[0].pattern == "starlette_route"
+
+    files = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "app.py"
+        and entrypoint.framework_hint == "starlette"
+        and entrypoint.route_path == "/files/{id}"
+    )
+    assert files.method == "delete"
+    assert files.handler == "delete_file"
+    assert files.evidence[0].pattern == "starlette_route"
+
+    assert not any(
+        entrypoint.framework_hint == "starlette" and entrypoint.handler == "ignored"
+        for entrypoint in entrypoints
+    )
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
+
+
+def test_detects_sanic_routes_with_static_handlers(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "app.py": """
+from sanic import Sanic
+
+app = Sanic("demo")
+
+@app.get("/reports")
+async def list_reports(request):
+    return []
+
+@app.post("/imports")
+def create_import(request):
+    return "ok"
+
+app.add_route(delete_file, "/files/<id>", methods=["DELETE"])
+app.add_route(ignored, dynamic_path)
+""",
+        },
+    )
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    reports = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "app.py"
+        and entrypoint.framework_hint == "sanic"
+        and entrypoint.route_path == "/reports"
+    )
+    assert reports.method == "get"
+    assert reports.handler == "list_reports"
+    assert reports.evidence[0].pattern == "sanic_route"
+
+    imports = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "app.py"
+        and entrypoint.framework_hint == "sanic"
+        and entrypoint.route_path == "/imports"
+    )
+    assert imports.method == "post"
+    assert imports.handler == "create_import"
+    assert imports.evidence[0].pattern == "sanic_route"
+
+    files = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "app.py"
+        and entrypoint.framework_hint == "sanic"
+        and entrypoint.route_path == "/files/<id>"
+    )
+    assert files.method == "delete"
+    assert files.handler == "delete_file"
+    assert files.evidence[0].pattern == "sanic_route"
+
+    assert not any(
+        entrypoint.framework_hint == "sanic" and entrypoint.handler == "ignored"
+        for entrypoint in entrypoints
+    )
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
+
+
+def test_detects_tornado_routes_with_static_handlers(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "app.py": """
+import tornado.web
+
+class ReportsHandler(tornado.web.RequestHandler):
+    def get(self):
+        self.write([])
+
+class ImportHandler(tornado.web.RequestHandler):
+    async def post(self):
+        self.write("ok")
+
+class FileHandler(tornado.web.RequestHandler):
+    def delete(self, file_id):
+        self.write("ok")
+
+class IgnoredHandler(tornado.web.RequestHandler):
+    def get(self):
+        self.write("ignored")
+
+app = tornado.web.Application([
+    (r"/reports", ReportsHandler),
+    ("/imports", ImportHandler),
+    (r"/files/([^/]+)", FileHandler),
+    (dynamic_path, IgnoredHandler),
+])
+""",
+        },
+    )
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    reports = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "app.py" and entrypoint.route_path == "/reports"
+    )
+    assert reports.method == "get"
+    assert reports.handler == "ReportsHandler#get"
+    assert reports.evidence[0].pattern == "tornado_route"
+
+    imports = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "app.py" and entrypoint.route_path == "/imports"
+    )
+    assert imports.method == "post"
+    assert imports.handler == "ImportHandler#post"
+    assert imports.evidence[0].pattern == "tornado_route"
+
+    files = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "app.py" and entrypoint.route_path == "/files/([^/]+)"
+    )
+    assert files.method == "delete"
+    assert files.handler == "FileHandler#delete"
+    assert files.evidence[0].pattern == "tornado_route"
+
+    assert not any(entrypoint.handler == "IgnoredHandler#get" for entrypoint in entrypoints)
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
+
+
+def test_detects_aiohttp_routes_with_static_handlers(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "app.py": """
+from aiohttp import web
+
+routes = web.RouteTableDef()
+
+@routes.get("/reports")
+async def list_reports(request):
+    return web.json_response([])
+
+@routes.post("/imports")
+def create_import(request):
+    return web.Response(text="ok")
+
+app = web.Application()
+app.router.add_delete("/files/{id}", delete_file)
+app.router.add_get(dynamic_path, ignored)
+""",
+        },
+    )
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    reports = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "app.py" and entrypoint.route_path == "/reports"
+    )
+    assert reports.method == "get"
+    assert reports.handler == "list_reports"
+    assert reports.evidence[0].pattern == "aiohttp_route"
+
+    imports = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "app.py" and entrypoint.route_path == "/imports"
+    )
+    assert imports.method == "post"
+    assert imports.handler == "create_import"
+    assert imports.evidence[0].pattern == "aiohttp_route"
+
+    files = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "app.py" and entrypoint.route_path == "/files/{id}"
+    )
+    assert files.method == "delete"
+    assert files.handler == "delete_file"
+    assert files.evidence[0].pattern == "aiohttp_route"
+
+    assert not any(entrypoint.handler == "ignored" for entrypoint in entrypoints)
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
+
+
 def test_detects_fastapi_file_and_network_consumers():
     repo_root, files = _indexed_fixture("mini_fastapi_app")
 
@@ -126,6 +1373,151 @@ def test_detects_fastapi_file_and_network_consumers():
     _assert_all_detections_have_evidence([*entrypoints, *consumers])
     _assert_unique_ids(entrypoints)
     _assert_unique_ids(consumers)
+
+
+def test_enriches_fastapi_route_with_following_handler(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "main.py": """
+from fastapi import FastAPI
+
+app = FastAPI()
+
+@app.post("/upload")
+async def upload_file(request):
+    return {"ok": True}
+
+@app.get("/reports")
+def list_reports():
+    return []
+""",
+        },
+    )
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    upload = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "main.py"
+        and entrypoint.framework_hint == "fastapi"
+        and entrypoint.route_path == "/upload"
+    )
+    assert upload.method == "post"
+    assert upload.handler == "upload_file"
+    assert upload.evidence[0].pattern == "fastapi_route"
+
+    reports = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "main.py"
+        and entrypoint.framework_hint == "fastapi"
+        and entrypoint.route_path == "/reports"
+    )
+    assert reports.method == "get"
+    assert reports.handler == "list_reports"
+    assert reports.evidence[0].pattern == "fastapi_route"
+
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
+
+
+def test_enriches_flask_route_with_handler_and_single_static_method(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "app.py": """
+from flask import Flask
+
+app = Flask(__name__)
+
+@app.route("/preview", methods=["POST"])
+def preview():
+    return "ok"
+
+@app.route("/health")
+def health():
+    return "ok"
+""",
+        },
+    )
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    preview = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "app.py"
+        and entrypoint.framework_hint == "flask"
+        and entrypoint.route_path == "/preview"
+    )
+    assert preview.method == "post"
+    assert preview.handler == "preview"
+    assert preview.evidence[0].pattern == "flask_route"
+
+    health = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "app.py"
+        and entrypoint.framework_hint == "flask"
+        and entrypoint.route_path == "/health"
+    )
+    assert health.method is None
+    assert health.handler == "health"
+    assert health.evidence[0].pattern == "flask_route"
+
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
+
+
+def test_leaves_flask_method_none_when_methods_are_ambiguous(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "app.py": """
+from flask import Flask
+
+app = Flask(__name__)
+
+@app.route("/multi", methods=["GET", "POST"])
+def multi():
+    return "ok"
+
+@app.route("/dynamic", methods=allowed_methods)
+def dynamic():
+    return "ok"
+""",
+        },
+    )
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    multi = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "app.py"
+        and entrypoint.framework_hint == "flask"
+        and entrypoint.route_path == "/multi"
+    )
+    assert multi.method is None
+    assert multi.handler == "multi"
+
+    dynamic = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "app.py"
+        and entrypoint.framework_hint == "flask"
+        and entrypoint.route_path == "/dynamic"
+    )
+    assert dynamic.method is None
+    assert dynamic.handler == "dynamic"
+
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
 
 
 def test_detects_template_consumer_and_route():
@@ -614,6 +2006,60 @@ def test_detects_multiline_taskengine_workers_with_metadata(tmp_path):
     _assert_unique_ids(workers)
 
 
+def test_detects_java_spark_routes_with_static_handlers(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "src/main/java/App.java": """
+import static spark.Spark.*;
+
+public class App {
+    public static void main(String[] args) {
+        get("/reports", ReportController::list);
+        post("/imports", ImportController::create);
+        delete("/files/:id", (request, response) -> "ok");
+        put(dynamicPath, ImportController::ignored);
+    }
+}
+""",
+        },
+    )
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    reports = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "src/main/java/App.java" and entrypoint.route_path == "/reports"
+    )
+    assert reports.method == "get"
+    assert reports.handler == "ReportController::list"
+    assert reports.evidence[0].pattern == "spark_route"
+
+    imports = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "src/main/java/App.java" and entrypoint.route_path == "/imports"
+    )
+    assert imports.method == "post"
+    assert imports.handler == "ImportController::create"
+    assert imports.evidence[0].pattern == "spark_route"
+
+    files_route = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "src/main/java/App.java" and entrypoint.route_path == "/files/:id"
+    )
+    assert files_route.method == "delete"
+    assert files_route.handler is None
+    assert files_route.evidence[0].pattern == "spark_route"
+
+    assert not any(entrypoint.handler == "ImportController::ignored" for entrypoint in entrypoints)
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
+
+
 def test_detects_java_webservlet_jaxrs_and_soap_entrypoints(tmp_path):
     repo_root, files = _indexed_tmp_repo(
         tmp_path,
@@ -734,18 +2180,30 @@ def test_detects_nextjs_pages_and_app_api_routes(tmp_path):
         tmp_path,
         {
             "pages/api/import.ts": "export default function handler(req, res) { res.status(200).end(); }\n",
+            "pages/api/users/[id].ts": "export default function handler(req, res) { res.status(200).end(); }\n",
             "app/api/import/route.ts": "export async function POST(request: Request) { return Response.json({ ok: true }); }\n",
+            "app/api/reports/[...slug]/route.ts": "export function GET(request: Request) { return Response.json({ ok: true }); }\n",
+            "app/api/search/[[...terms]]/route.ts": "export async function DELETE(request: Request) { return Response.json({ ok: true }); }\n",
         },
     )
 
     entrypoints = detect_entrypoints(repo_root, files)
 
-    for expected_file in ["pages/api/import.ts", "app/api/import/route.ts"]:
+    expected_routes = {
+        "pages/api/import.ts": ("/api/import", None),
+        "pages/api/users/[id].ts": ("/api/users/{id}", None),
+        "app/api/import/route.ts": ("/api/import", "post"),
+        "app/api/reports/[...slug]/route.ts": ("/api/reports/{slug}", "get"),
+        "app/api/search/[[...terms]]/route.ts": ("/api/search/{terms}", "delete"),
+    }
+    for expected_file, (expected_route, expected_method) in expected_routes.items():
         match = next(
             entrypoint for entrypoint in entrypoints if entrypoint.file == expected_file
         )
         assert match.type == EntrypointType.HTTP_ROUTE
         assert match.line == 1
+        assert match.method == expected_method
+        assert match.route_path == expected_route
         assert match.evidence[0].file == expected_file
         assert match.evidence[0].line == 1
         assert match.evidence[0].pattern == "next_api_route"
@@ -1028,6 +2486,159 @@ class ImportController {
     _assert_all_detections_have_evidence(entrypoints)
 
 
+def test_detects_spring_mapping_outside_class_blocks(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "api.java": """
+@RequestMapping("/api")
+interface ReportApi {
+    @GetMapping("/reports")
+    List<Report> reports();
+}
+""",
+        },
+    )
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    assert any(
+        entrypoint.file == "api.java"
+        and entrypoint.method == "get"
+        and entrypoint.route_path == "/reports"
+        and entrypoint.evidence[0].pattern == "spring_mapping"
+        for entrypoint in entrypoints
+    )
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
+
+
+def test_enriches_spring_mapping_with_class_prefix_and_handler(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "src/main/java/example/ImportController.java": """
+package example;
+
+@RestController
+@RequestMapping("/api")
+class ImportController {
+    @GetMapping("/imports")
+    String imports() { return "ok"; }
+
+    @PostMapping(path = "/imports")
+    ResponseEntity<String> createImport() { return null; }
+}
+""",
+        },
+    )
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    get_match = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "src/main/java/example/ImportController.java"
+        and entrypoint.method == "get"
+        and entrypoint.route_path == "/api/imports"
+    )
+    assert get_match.handler == "ImportController#imports"
+    assert get_match.evidence[0].pattern == "spring_mapping"
+
+    post_match = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "src/main/java/example/ImportController.java"
+        and entrypoint.method == "post"
+        and entrypoint.route_path == "/api/imports"
+    )
+    assert post_match.handler == "ImportController#createImport"
+    assert post_match.evidence[0].pattern == "spring_mapping"
+
+    assert not any(
+        entrypoint.file == "src/main/java/example/ImportController.java"
+        and entrypoint.method in {"get", "post"}
+        and entrypoint.route_path == "/imports"
+        for entrypoint in entrypoints
+    )
+
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
+
+
+def test_enriches_spring_request_mapping_with_method_and_handler(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "controller.java": """
+@RestController
+@RequestMapping(path = "/admin")
+class AdminController {
+    @RequestMapping(path = "/reports", method = RequestMethod.DELETE)
+    void deleteReport() {}
+}
+""",
+        },
+    )
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    match = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "controller.java"
+        and entrypoint.method == "delete"
+        and entrypoint.route_path == "/admin/reports"
+    )
+    assert match.handler == "AdminController#deleteReport"
+    assert match.evidence[0].pattern == "spring_mapping"
+
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
+
+
+def test_leaves_spring_dynamic_routes_unenriched(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "controller.java": """
+@RestController
+@RequestMapping(BASE_PATH)
+class DynamicController {
+    @GetMapping("/fixed")
+    String fixed() { return "ok"; }
+
+    @PostMapping(path = dynamicPath)
+    String dynamic() { return "ok"; }
+}
+""",
+        },
+    )
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    fixed = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "controller.java"
+        and entrypoint.method == "get"
+        and entrypoint.route_path == "/fixed"
+    )
+    assert fixed.handler == "DynamicController#fixed"
+
+    assert not any(
+        entrypoint.file == "controller.java" and entrypoint.handler == "DynamicController#dynamic"
+        for entrypoint in entrypoints
+    )
+
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
+
+
 def test_detects_django_urlpatterns(tmp_path):
     repo_root, files = _indexed_tmp_repo(
         tmp_path,
@@ -1092,6 +2703,87 @@ urlpatterns = [
     assert match.evidence[0].pattern == "django_urlpatterns"
     assert "path(" in match.evidence[0].snippet or "preview/" in match.evidence[0].snippet
     _assert_all_detections_have_evidence(entrypoints)
+
+
+def test_enriches_django_urlpatterns_with_simple_handlers(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "urls.py": """
+from django.urls import path, re_path
+from . import views
+
+urlpatterns = [
+    path("preview/", views.preview),
+    re_path(r"^reports/$", reports.views.list_reports),
+    path("class-view/", ReportView.as_view()),
+]
+""",
+        },
+    )
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    preview = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "urls.py" and entrypoint.route_path == "preview/"
+    )
+    assert preview.handler == "views.preview"
+    assert preview.evidence[0].pattern == "django_urlpatterns"
+
+    reports = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "urls.py" and entrypoint.route_path == "^reports/$"
+    )
+    assert reports.handler == "reports.views.list_reports"
+    assert reports.evidence[0].pattern == "django_urlpatterns"
+
+    class_view = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "urls.py" and entrypoint.route_path == "class-view/"
+    )
+    assert class_view.handler == "ReportView.as_view()"
+    assert class_view.evidence[0].pattern == "django_urlpatterns"
+
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
+
+
+def test_enriches_multiline_django_urlpatterns_with_handler(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {
+            "urls.py": """
+from django.urls import path
+from . import views
+
+urlpatterns = [
+    path(
+        "preview/",
+        views.preview,
+    ),
+]
+""",
+        },
+    )
+
+    entrypoints = detect_entrypoints(repo_root, files)
+
+    match = next(
+        entrypoint
+        for entrypoint in entrypoints
+        if entrypoint.file == "urls.py" and entrypoint.route_path == "preview/"
+    )
+    assert match.handler == "views.preview"
+    assert match.evidence[0].pattern == "django_urlpatterns"
+
+    _assert_all_detections_have_evidence(entrypoints)
+    _assert_unique_ids(entrypoints)
+
 
 
 def test_detects_bare_process_worker(tmp_path):
@@ -1178,6 +2870,19 @@ def test_entrypoint_tuning_excludes_generic_graphql(tmp_path):
     entrypoints = detect_entrypoints(repo_root, files, config)
 
     assert not any(entrypoint.type == EntrypointType.GRAPHQL_RESOLVER for entrypoint in entrypoints)
+
+
+def test_entrypoint_tuning_excludes_nextjs_api_routes(tmp_path):
+    repo_root, files = _indexed_tmp_repo(
+        tmp_path,
+        {"app/api/import/route.ts": "export async function POST() { return Response.json({ ok: true }); }\n"},
+    )
+    config = AuditConfig()
+    config.focus.detectors.entrypoints.exclude = {"next_api_route"}
+
+    entrypoints = detect_entrypoints(repo_root, files, config)
+
+    assert not any(entrypoint.evidence[0].pattern == "next_api_route" for entrypoint in entrypoints)
 
 
 def test_entrypoint_tuning_include_keeps_only_express_route(tmp_path):

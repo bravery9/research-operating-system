@@ -110,7 +110,7 @@ def audit(
         raise typer.BadParameter(str(error)) from error
 
     result = run_audit(repo, config)
-    json_path, markdown_path, graph_path, html_path, sarif_path = write_audit_outputs(result, output_dir)
+    output_paths = write_audit_outputs(result, output_dir)
 
     console.print("InvariantOS audit complete")
     console.print(f"Files indexed: {result.summary.files}")
@@ -118,11 +118,12 @@ def audit(
     console.print(f"Workers: {result.summary.workers}")
     console.print(f"Boundaries: {result.summary.boundaries}")
     console.print(f"Primitive candidates: {result.summary.primitive_candidates}")
-    console.print(f"JSON: {json_path}")
-    console.print(f"Markdown: {markdown_path}")
-    console.print(f"Evidence graph: {graph_path}")
-    console.print(f"Evidence viewer: {html_path}")
-    console.print(f"SARIF: {sarif_path}")
+    console.print(f"JSON: {output_paths.json}")
+    console.print(f"Markdown: {output_paths.markdown}")
+    console.print(f"Evidence graph: {output_paths.graph}")
+    console.print(f"Evidence viewer: {output_paths.html}")
+    console.print(f"SARIF: {output_paths.sarif}")
+    console.print(f"Review queue: {output_paths.review_queue}")
 
 
 @app.command()

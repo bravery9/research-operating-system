@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import re
 import subprocess
 import sys
@@ -52,13 +53,16 @@ def test_audit_writes_artifacts_for_fixture(tmp_path):
     graph_path = output_dir / "evidence_graph.json"
     html_path = output_dir / "evidence_viewer.html"
     sarif_path = output_dir / "audit_result.sarif.json"
+    review_queue_path = output_dir / "audit_review_queue.jsonl"
     assert json_path.exists()
     assert markdown_path.exists()
     assert graph_path.exists()
     assert html_path.exists()
     assert sarif_path.exists()
+    assert review_queue_path.exists()
     assert "Evidence viewer:" in result.output
     assert "SARIF:" in result.output
+    assert "Review queue:" in result.output
 
     audit_result = AuditResult.model_validate_json(json_path.read_text(encoding="utf-8"))
     assert audit_result.summary.entrypoints > 0
@@ -71,6 +75,11 @@ def test_audit_writes_artifacts_for_fixture(tmp_path):
     graph_payload = graph_path.read_text(encoding="utf-8")
     assert '"nodes"' in graph_payload
     assert '"edges"' in graph_payload
+    review_queue_rows = [
+        json.loads(line) for line in review_queue_path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert review_queue_rows
+    assert all(row["queue_type"] == "manual_review_candidate" for row in review_queue_rows)
 
 
 def test_audit_writes_java_tomcat_fixture_signals(tmp_path):
@@ -85,6 +94,7 @@ def test_audit_writes_java_tomcat_fixture_signals(tmp_path):
     graph_path = output_dir / "evidence_graph.json"
     html_path = output_dir / "evidence_viewer.html"
     sarif_path = output_dir / "audit_result.sarif.json"
+    review_queue_path = output_dir / "audit_review_queue.jsonl"
     audit_result = AuditResult.model_validate_json(json_path.read_text(encoding="utf-8"))
     consumer_types = {consumer.type for consumer in audit_result.consumers}
     boundary_types = {boundary.type for boundary in audit_result.boundaries}
@@ -93,6 +103,7 @@ def test_audit_writes_java_tomcat_fixture_signals(tmp_path):
     assert graph_path.exists()
     assert html_path.exists()
     assert sarif_path.exists()
+    assert review_queue_path.exists()
     assert audit_result.schema_version == "0.5"
     assert audit_result.static_flow_candidates
     assert audit_result.summary.static_flow_candidates == len(audit_result.static_flow_candidates)
@@ -180,6 +191,7 @@ def test_module_execution_runs_audit_command_and_writes_outputs(tmp_path):
     assert (output_dir / "evidence_graph.json").exists()
     assert (output_dir / "evidence_viewer.html").exists()
     assert (output_dir / "audit_result.sarif.json").exists()
+    assert (output_dir / "audit_review_queue.jsonl").exists()
 
 
 def test_audit_rejects_repo_root_as_output_directory(tmp_path):
@@ -208,6 +220,7 @@ def test_audit_empty_repo_writes_outputs_without_crashing(tmp_path):
     assert (output_dir / "evidence_graph.json").exists()
     assert (output_dir / "evidence_viewer.html").exists()
     assert (output_dir / "audit_result.sarif.json").exists()
+    assert (output_dir / "audit_review_queue.jsonl").exists()
 
 
 def test_repeated_audit_ignores_default_output_directory_inside_repo(tmp_path):

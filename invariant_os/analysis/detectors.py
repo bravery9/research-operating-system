@@ -20,6 +20,9 @@ from invariant_os.core.models import (
 
 
 HTTP_METHODS = "get|post|put|patch|delete"
+NEXT_APP_ROUTE_METHOD = re.compile(
+    r"\bexport\s+(?:async\s+)?function\s+(?P<method>GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\b"
+)
 
 
 @dataclass(frozen=True)
@@ -197,7 +200,7 @@ WORKER_PATTERNS = [
 WORKER_PATH_HINTS = {"worker", "workers", "job", "jobs", "task", "tasks", "consumer", "consumers", "queue", "cron"}
 QUEUE_LIBRARY_HINT = re.compile(r"\b(?:bull|bullmq|bee-queue|kue|celery|sidekiq|rq|dramatiq|resque|queue)\b", re.IGNORECASE)
 BARE_PROCESS_CALL = re.compile(r"(?<!\.)\bprocess\s*\(")
-NEXT_ROUTE_SUFFIXES = ("route.ts", "route.js")
+NEXT_ROUTE_FILENAMES = {"route.js", "route.jsx", "route.ts", "route.tsx"}
 TOMCAT_WEB_XML_PATTERNS = [
     (re.compile(r"<url-pattern>\s*(?P<route>[^<]+)\s*</url-pattern>", re.IGNORECASE), "tomcat_url_pattern"),
     (re.compile(r"<servlet-class>\s*(?P<class>[^<]+)\s*</servlet-class>", re.IGNORECASE), "tomcat_servlet_class"),
@@ -211,17 +214,37 @@ def known_entrypoint_patterns() -> set[str]:
         *(pattern.pattern for pattern in ENTRYPOINT_PATTERNS),
         *(pattern_name for _, pattern_name in TOMCAT_WEB_XML_PATTERNS),
         "adap_rest_api_mapping",
+        "aiohttp_route",
+        "aspnet_route",
+        "bottle_route",
+        "go_route",
+        "hapi_route",
         "java_enterprise_handler",
         "java_soap",
         "java_webservlet",
         "javascript_url_config",
+        "kotlin_route",
+        "laravel_route",
         "jax_rs",
+        "clojure_route",
         "next_api_route",
+        "nestjs_route",
+        "phoenix_route",
+        "pyramid_route",
+        "servant_route",
+        "play_route",
         "product_api_xml",
+        "rails_route",
+        "rust_route",
+        "sanic_route",
         "servlet_forward_config",
+        "starlette_route",
+        "sinatra_route",
+        "spark_route",
         "spring_mapping",
         "tomcat_connector",
         "tomcat_security_constraint",
+        "tornado_route",
         "zsec_security_url",
     }
 
@@ -290,7 +313,12 @@ def detect_entrypoints(repo_root: Path, files: list[FileRecord], config: AuditCo
         )
 
     for record, lines in _iter_indexed_lines(repo_root, files):
-        if _is_next_api_file(record.path):
+        is_python = _is_python_file(record.path)
+        is_javascript = _is_javascript_file(record.path)
+        spring_allowed = _is_detector_allowed("spring_mapping", allowed_patterns)
+        spring_source = spring_allowed and (_is_java_file(record.path) or _is_kotlin_file(record.path))
+
+        if _is_next_api_file(record.path) and _is_detector_allowed("next_api_route", allowed_patterns):
             add_entrypoint(
                 entrypoint_type=EntrypointType.HTTP_ROUTE,
                 file=record.path,
@@ -298,7 +326,37 @@ def detect_entrypoints(repo_root: Path, files: list[FileRecord], config: AuditCo
                 framework_hint="nextjs",
                 pattern="next_api_route",
                 snippet=lines[0][1] if lines else "",
+                method=_next_app_route_method(lines) if _is_next_app_route_file(record.path) else None,
+                route_path=_next_api_route_path(record.path),
             )
+
+        if is_javascript and _is_nestjs_source(lines):
+            for line_number, method, nest_route_path, handler, snippet in _nestjs_route_matches(lines):
+                add_entrypoint(
+                    entrypoint_type=EntrypointType.HTTP_ROUTE,
+                    file=record.path,
+                    line=line_number,
+                    framework_hint="nestjs",
+                    pattern="nestjs_route",
+                    snippet=snippet,
+                    method=method,
+                    route_path=nest_route_path,
+                    handler=handler,
+                )
+
+        if is_javascript and _is_hapi_source(lines):
+            for line_number, method, hapi_route_path, handler, snippet in _hapi_route_matches(lines):
+                add_entrypoint(
+                    entrypoint_type=EntrypointType.HTTP_ROUTE,
+                    file=record.path,
+                    line=line_number,
+                    framework_hint="hapi",
+                    pattern="hapi_route",
+                    snippet=snippet,
+                    method=method,
+                    route_path=hapi_route_path,
+                    handler=handler,
+                )
 
         if _is_tomcat_web_xml_file(record.path):
             for line_number, tomcat_pattern, route_path, snippet in _tomcat_web_xml_matches(lines):
@@ -379,6 +437,18 @@ def detect_entrypoints(repo_root: Path, files: list[FileRecord], config: AuditCo
                 )
 
         if _is_java_file(record.path):
+            for line_number, method, spark_route_path, handler, snippet in _spark_route_matches(lines):
+                add_entrypoint(
+                    entrypoint_type=EntrypointType.HTTP_ROUTE,
+                    file=record.path,
+                    line=line_number,
+                    framework_hint="spark-java",
+                    pattern="spark_route",
+                    snippet=snippet,
+                    method=method,
+                    route_path=spark_route_path,
+                    handler=handler,
+                )
             for java_match in _java_enterprise_matches(lines):
                 line_number, entrypoint_type, framework_hint, method, route_path, handler, snippet, pattern_name = java_match
                 add_entrypoint(
@@ -387,6 +457,243 @@ def detect_entrypoints(repo_root: Path, files: list[FileRecord], config: AuditCo
                     line=line_number,
                     framework_hint=framework_hint,
                     pattern=pattern_name,
+                    snippet=snippet,
+                    method=method,
+                    route_path=route_path,
+                    handler=handler,
+                )
+
+        if is_python and _is_pyramid_source(lines):
+            for line_number, method, pyramid_route_path, handler, snippet in _pyramid_route_matches(lines):
+                add_entrypoint(
+                    entrypoint_type=EntrypointType.HTTP_ROUTE,
+                    file=record.path,
+                    line=line_number,
+                    framework_hint="pyramid",
+                    pattern="pyramid_route",
+                    snippet=snippet,
+                    method=method,
+                    route_path=pyramid_route_path,
+                    handler=handler,
+                )
+
+        if is_python and _is_starlette_source(lines):
+            for line_number, method, starlette_route_path, handler, snippet in _starlette_route_matches(lines):
+                add_entrypoint(
+                    entrypoint_type=EntrypointType.HTTP_ROUTE,
+                    file=record.path,
+                    line=line_number,
+                    framework_hint="starlette",
+                    pattern="starlette_route",
+                    snippet=snippet,
+                    method=method,
+                    route_path=starlette_route_path,
+                    handler=handler,
+                )
+
+        if is_python and _is_sanic_source(lines):
+            for line_number, method, sanic_route_path, handler, snippet in _sanic_route_matches(lines):
+                add_entrypoint(
+                    entrypoint_type=EntrypointType.HTTP_ROUTE,
+                    file=record.path,
+                    line=line_number,
+                    framework_hint="sanic",
+                    pattern="sanic_route",
+                    snippet=snippet,
+                    method=method,
+                    route_path=sanic_route_path,
+                    handler=handler,
+                )
+
+        if is_python and _is_tornado_source(lines):
+            for line_number, method, tornado_route_path, handler, snippet in _tornado_route_matches(lines):
+                add_entrypoint(
+                    entrypoint_type=EntrypointType.HTTP_ROUTE,
+                    file=record.path,
+                    line=line_number,
+                    framework_hint="tornado",
+                    pattern="tornado_route",
+                    snippet=snippet,
+                    method=method,
+                    route_path=tornado_route_path,
+                    handler=handler,
+                )
+
+        if is_python and _is_aiohttp_source(lines):
+            for line_number, method, aiohttp_route_path, handler, snippet in _aiohttp_route_matches(lines):
+                add_entrypoint(
+                    entrypoint_type=EntrypointType.HTTP_ROUTE,
+                    file=record.path,
+                    line=line_number,
+                    framework_hint="aiohttp",
+                    pattern="aiohttp_route",
+                    snippet=snippet,
+                    method=method,
+                    route_path=aiohttp_route_path,
+                    handler=handler,
+                )
+
+        if _is_bottle_file(record.path) and _is_bottle_source(lines):
+            for line_number, method, route_path, handler, snippet in _bottle_route_matches(lines):
+                add_entrypoint(
+                    entrypoint_type=EntrypointType.HTTP_ROUTE,
+                    file=record.path,
+                    line=line_number,
+                    framework_hint="bottle",
+                    pattern="bottle_route",
+                    snippet=snippet,
+                    method=method,
+                    route_path=route_path,
+                    handler=handler,
+                )
+
+        if _is_go_file(record.path):
+            for line_number, method, route_path, handler, snippet in _go_route_matches(lines):
+                add_entrypoint(
+                    entrypoint_type=EntrypointType.HTTP_ROUTE,
+                    file=record.path,
+                    line=line_number,
+                    framework_hint="go-http",
+                    pattern="go_route",
+                    snippet=snippet,
+                    method=method,
+                    route_path=route_path,
+                    handler=handler,
+                )
+
+        if _is_csharp_file(record.path):
+            for line_number, method, route_path, handler, snippet in _aspnet_route_matches(lines):
+                add_entrypoint(
+                    entrypoint_type=EntrypointType.HTTP_ROUTE,
+                    file=record.path,
+                    line=line_number,
+                    framework_hint="aspnet-core",
+                    pattern="aspnet_route",
+                    snippet=snippet,
+                    method=method,
+                    route_path=route_path,
+                    handler=handler,
+                )
+
+        if _is_rust_file(record.path):
+            for line_number, method, route_path, handler, snippet in _rust_route_matches(lines):
+                add_entrypoint(
+                    entrypoint_type=EntrypointType.HTTP_ROUTE,
+                    file=record.path,
+                    line=line_number,
+                    framework_hint="rust-web",
+                    pattern="rust_route",
+                    snippet=snippet,
+                    method=method,
+                    route_path=route_path,
+                    handler=handler,
+                )
+
+        if _is_kotlin_file(record.path):
+            for line_number, method, route_path, handler, snippet in _kotlin_route_matches(lines):
+                add_entrypoint(
+                    entrypoint_type=EntrypointType.HTTP_ROUTE,
+                    file=record.path,
+                    line=line_number,
+                    framework_hint="kotlin-web",
+                    pattern="kotlin_route",
+                    snippet=snippet,
+                    method=method,
+                    route_path=route_path,
+                    handler=handler,
+                )
+
+        if _is_play_routes_file(record.path):
+            for line_number, method, route_path, handler, snippet in _play_route_matches(lines):
+                add_entrypoint(
+                    entrypoint_type=EntrypointType.HTTP_ROUTE,
+                    file=record.path,
+                    line=line_number,
+                    framework_hint="scala-play",
+                    pattern="play_route",
+                    snippet=snippet,
+                    method=method,
+                    route_path=route_path,
+                    handler=handler,
+                )
+
+        if _is_elixir_file(record.path):
+            for line_number, method, route_path, handler, snippet in _phoenix_route_matches(lines):
+                add_entrypoint(
+                    entrypoint_type=EntrypointType.HTTP_ROUTE,
+                    file=record.path,
+                    line=line_number,
+                    framework_hint="phoenix",
+                    pattern="phoenix_route",
+                    snippet=snippet,
+                    method=method,
+                    route_path=route_path,
+                    handler=handler,
+                )
+
+        if _is_clojure_file(record.path):
+            for line_number, method, route_path, handler, snippet in _clojure_route_matches(lines):
+                add_entrypoint(
+                    entrypoint_type=EntrypointType.HTTP_ROUTE,
+                    file=record.path,
+                    line=line_number,
+                    framework_hint="clojure-web",
+                    pattern="clojure_route",
+                    snippet=snippet,
+                    method=method,
+                    route_path=route_path,
+                    handler=handler,
+                )
+
+        if _is_haskell_file(record.path):
+            for line_number, method, route_path, handler, snippet in _servant_route_matches(lines):
+                add_entrypoint(
+                    entrypoint_type=EntrypointType.HTTP_ROUTE,
+                    file=record.path,
+                    line=line_number,
+                    framework_hint="haskell-servant",
+                    pattern="servant_route",
+                    snippet=snippet,
+                    method=method,
+                    route_path=route_path,
+                    handler=handler,
+                )
+
+        if _is_ruby_file(record.path):
+            if _is_sinatra_source(lines):
+                for line_number, method, route_path, handler, snippet in _sinatra_route_matches(lines):
+                    add_entrypoint(
+                        entrypoint_type=EntrypointType.HTTP_ROUTE,
+                        file=record.path,
+                        line=line_number,
+                        framework_hint="sinatra",
+                        pattern="sinatra_route",
+                        snippet=snippet,
+                        method=method,
+                        route_path=route_path,
+                        handler=handler,
+                    )
+            for line_number, method, route_path, handler, snippet in _rails_route_matches(lines):
+                add_entrypoint(
+                    entrypoint_type=EntrypointType.HTTP_ROUTE,
+                    file=record.path,
+                    line=line_number,
+                    framework_hint="rails",
+                    pattern="rails_route",
+                    snippet=snippet,
+                    method=method,
+                    route_path=route_path,
+                    handler=handler,
+                )
+
+        if _is_php_file(record.path):
+            for line_number, method, route_path, handler, snippet in _laravel_route_matches(lines):
+                add_entrypoint(
+                    entrypoint_type=EntrypointType.HTTP_ROUTE,
+                    file=record.path,
+                    line=line_number,
+                    framework_hint="laravel",
+                    pattern="laravel_route",
                     snippet=snippet,
                     method=method,
                     route_path=route_path,
@@ -421,7 +728,7 @@ def detect_entrypoints(repo_root: Path, files: list[FileRecord], config: AuditCo
 
         has_urlpatterns = any("urlpatterns" in candidate_line for _, candidate_line in lines)
         if has_urlpatterns:
-            for line_number, route, snippet in _django_urlpatterns_matches(lines):
+            for line_number, route, handler, snippet in _django_urlpatterns_matches(lines):
                 add_entrypoint(
                     entrypoint_type=EntrypointType.HTTP_ROUTE,
                     file=record.path,
@@ -430,27 +737,58 @@ def detect_entrypoints(repo_root: Path, files: list[FileRecord], config: AuditCo
                     pattern="django_urlpatterns",
                     snippet=snippet,
                     route_path=route,
+                    handler=handler,
                 )
 
-        for line_number, line in lines:
-            spring_mapping = _spring_mapping_from_line(line)
-            if spring_mapping is not None:
-                method, route = spring_mapping
+        enriched_spring_lines: set[int] = set()
+        if spring_source:
+            for line_number, method, route, handler, snippet in _spring_mapping_matches(lines):
+                enriched_spring_lines.add(line_number)
                 add_entrypoint(
                     entrypoint_type=EntrypointType.HTTP_ROUTE,
                     file=record.path,
                     line=line_number,
                     framework_hint="spring",
                     pattern="spring_mapping",
-                    snippet=line,
+                    snippet=snippet,
                     method=method,
                     route_path=route,
+                    handler=handler,
                 )
+
+        for index, (line_number, line) in enumerate(lines):
+            if spring_source:
+                spring_mapping = _spring_mapping_from_line(line)
+                if spring_mapping is not None and line_number not in enriched_spring_lines:
+                    method, route = spring_mapping
+                    add_entrypoint(
+                        entrypoint_type=EntrypointType.HTTP_ROUTE,
+                        file=record.path,
+                        line=line_number,
+                        framework_hint="spring",
+                        pattern="spring_mapping",
+                        snippet=line,
+                        method=method,
+                        route_path=route,
+                    )
 
             for pattern in ENTRYPOINT_PATTERNS:
                 if pattern.pattern in {"django_urlpatterns", "spring_mapping"}:
                     continue
+                if not _is_detector_allowed(pattern.pattern, allowed_patterns):
+                    continue
                 for match in pattern.regex.finditer(line):
+                    if pattern.pattern == "express_route":
+                        handler = _javascript_route_handler_from_line(line, match)
+                    elif pattern.pattern in {"fastapi_route", "flask_route"}:
+                        handler = _python_handler_after(lines, index)
+                    else:
+                        handler = None
+                    method = (
+                        _flask_route_method(line)
+                        if pattern.pattern == "flask_route"
+                        else _normalized_method(_optional_group(match, "method"))
+                    )
                     add_entrypoint(
                         entrypoint_type=pattern.type,
                         file=record.path,
@@ -458,8 +796,9 @@ def detect_entrypoints(repo_root: Path, files: list[FileRecord], config: AuditCo
                         framework_hint=pattern.framework_hint,
                         pattern=pattern.pattern,
                         snippet=line,
-                        method=_normalized_method(_optional_group(match, "method")),
+                        method=method,
                         route_path=_optional_group(match, "route"),
+                        handler=handler,
                     )
 
     return _dedupe_entrypoints(entrypoints)
@@ -672,6 +1011,372 @@ def _dedupe_entrypoints(entrypoints: list[Entrypoint]) -> list[Entrypoint]:
         else:
             existing.evidence.extend(entrypoint.evidence)
     return deduped
+
+
+def _python_handler_after(lines: list[tuple[int, str]], index: int) -> str | None:
+    for _, candidate in lines[index + 1 : index + 8]:
+        match = re.search(r"^\s*(?:async\s+)?def\s+(?P<name>[A-Za-z_]\w*)\s*\(", candidate)
+        if match is not None:
+            return match.group("name")
+        stripped = candidate.strip()
+        if stripped and not stripped.startswith("@"):
+            return None
+    return None
+
+
+
+def _single_list_method(args: str, keyword: str = "methods") -> str | None:
+    methods_match = re.search(rf"\b{keyword}\s*=\s*\[(?P<methods>[^\]]*)\]", args)
+    if methods_match is None:
+        return None
+    methods = re.findall(r"['\"](?P<method>[A-Za-z]+)['\"]", methods_match.group("methods"))
+    return _normalized_method(methods[0]) if len(methods) == 1 else None
+
+
+def _flask_route_method(line: str) -> str | None:
+    return _single_list_method(line)
+
+
+
+def _javascript_route_handler_from_line(line: str, route_match: re.Match[str]) -> str | None:
+    remainder = line[route_match.end() :]
+    handler_match = re.search(
+        r"^\s*['\"]\s*,\s*"
+        r"(?:(?:async\s+)?function\s+(?P<function>[A-Za-z_$][\w$]*)\s*\(|"
+        r"(?P<identifier>[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\b)",
+        remainder,
+    )
+    if handler_match is None:
+        return None
+    return handler_match.group("function") or handler_match.group("identifier")
+
+
+
+def _nestjs_route_matches(lines: list[tuple[int, str]]) -> Iterable[tuple[int, str | None, str, str | None, str]]:
+    text = _joined_lines(lines)
+    for class_match in re.finditer(
+        r"@Controller\s*\(\s*['\"](?P<prefix>[^'\"]*)['\"]\s*\)\s*"
+        r"(?:export\s+)?class\s+(?P<class>[A-Za-z_$][\w$]*)\s*\{(?P<body>.*?)(?=\n\s*@Controller|\Z)",
+        text,
+        re.DOTALL,
+    ):
+        class_name = class_match.group("class")
+        prefix = class_match.group("prefix")
+        body = class_match.group("body")
+        for route_match in re.finditer(
+            r"@(?P<method>Get|Post|Put|Patch|Delete|Head|Options)\s*\(\s*['\"](?P<route>[^'\"]*)['\"]\s*\)\s*"
+            r"(?:(?:public|private|protected|async|static)\s+)*"
+            r"(?P<handler>[A-Za-z_$][\w$]*)\s*\(",
+            body,
+        ):
+            yield (
+                _line_for_offset(text, class_match.start("body") + route_match.start()),
+                route_match.group("method").lower(),
+                _join_route_parts(prefix, route_match.group("route")),
+                f"{class_name}#{route_match.group('handler')}",
+                _compact_snippet(route_match.group(0)),
+            )
+
+
+
+def _hapi_route_matches(lines: list[tuple[int, str]]) -> Iterable[tuple[int, str | None, str, str | None, str]]:
+    text = _joined_lines(lines)
+    for route_match in re.finditer(r"\bserver\.route\s*\(\s*\{(?P<body>.*?)\}\s*\)", text, re.DOTALL):
+        body = route_match.group("body")
+        method_match = re.search(r"\bmethod\s*:\s*['\"](?P<method>[A-Za-z]+)['\"]", body)
+        path_match = re.search(r"\bpath\s*:\s*['\"](?P<route>/[^'\"]*)['\"]", body)
+        if method_match is None or path_match is None:
+            continue
+        yield (
+            _line_for_offset(text, route_match.start()),
+            _normalized_method(method_match.group("method")),
+            path_match.group("route"),
+            _hapi_handler_from_body(body),
+            _compact_snippet(route_match.group(0)),
+        )
+
+
+
+def _hapi_handler_from_body(body: str) -> str | None:
+    handler_match = re.search(r"\bhandler\s*:\s*(?P<handler>[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\b", body)
+    if handler_match is None:
+        return None
+    return handler_match.group("handler")
+
+
+
+def _pyramid_route_matches(lines: list[tuple[int, str]]) -> Iterable[tuple[int, str | None, str, str | None, str]]:
+    views = _pyramid_view_handlers(lines)
+    for line_number, line in lines:
+        route_match = re.search(r"\b\w+\.add_route\s*\(\s*(?P<args>.*)\)\s*$", line)
+        if route_match is None:
+            continue
+        parsed = _pyramid_add_route_args(route_match.group("args"))
+        if parsed is None:
+            continue
+        route_name, route_path = parsed
+        view = views.get(route_name)
+        method, handler = view if view is not None else (None, None)
+        yield line_number, method, route_path, handler, line
+
+
+
+def _pyramid_add_route_args(args: str) -> tuple[str, str] | None:
+    name_match = re.search(r"(?:^\s*['\"](?P<pos>[^'\"]+)['\"]|\bname\s*=\s*['\"](?P<kw>[^'\"]+)['\"])", args)
+    pattern_match = re.search(
+        r"(?:^\s*['\"][^'\"]+['\"]\s*,\s*['\"](?P<pos>/[^'\"]*)['\"]|\bpattern\s*=\s*['\"](?P<kw>/[^'\"]*)['\"])",
+        args,
+    )
+    if name_match is None or pattern_match is None:
+        return None
+    return name_match.group("pos") or name_match.group("kw"), pattern_match.group("pos") or pattern_match.group("kw")
+
+
+
+def _pyramid_view_handlers(lines: list[tuple[int, str]]) -> dict[str, tuple[str | None, str | None]]:
+    handlers: dict[str, tuple[str | None, str | None]] = {}
+    for index, (_, line) in enumerate(lines):
+        view_match = re.search(r"@view_config\s*\((?P<args>[^)]*)\)", line)
+        if view_match is None:
+            continue
+        route_match = re.search(r"\broute_name\s*=\s*['\"](?P<route>[^'\"]+)['\"]", view_match.group("args"))
+        if route_match is None:
+            continue
+        method_match = re.search(r"\brequest_method\s*=\s*['\"](?P<method>[A-Za-z]+)['\"]", view_match.group("args"))
+        handlers[route_match.group("route")] = (
+            _normalized_method(method_match.group("method") if method_match else None),
+            _python_handler_after(lines, index),
+        )
+    return handlers
+
+
+
+def _starlette_route_matches(lines: list[tuple[int, str]]) -> Iterable[tuple[int, str | None, str, str | None, str]]:
+    for line_number, line in lines:
+        route_match = re.search(r"\bRoute\s*\(\s*(?P<args>.*)\)\s*,?\s*$", line)
+        if route_match is not None:
+            parsed = _starlette_route_args(route_match.group("args"))
+            if parsed is not None:
+                route_path, handler = parsed
+                yield line_number, _starlette_route_method(route_match.group("args")), route_path, handler, line
+            continue
+
+        add_route_match = re.search(r"\b\w+\.add_route\s*\(\s*(?P<args>.*)\)\s*$", line)
+        if add_route_match is None:
+            continue
+        parsed = _starlette_add_route_args(add_route_match.group("args"))
+        if parsed is None:
+            continue
+        route_path, handler = parsed
+        yield line_number, _starlette_route_method(add_route_match.group("args")), route_path, handler, line
+
+
+
+def _starlette_route_args(args: str) -> tuple[str, str] | None:
+    route_match = re.search(r"(?:^\s*['\"](?P<pos>/[^'\"]*)['\"]|\bpath\s*=\s*['\"](?P<kw>/[^'\"]*)['\"])", args)
+    if route_match is None:
+        return None
+
+    handler_match = re.search(
+        r"\bendpoint\s*=\s*(?P<keyword>[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)",
+        args,
+    )
+    if handler_match is None:
+        handler_match = re.search(
+            r"^\s*['\"]/[^'\"]*['\"]\s*,\s*(?P<positional>[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)",
+            args,
+        )
+    if handler_match is None:
+        return None
+    handler = handler_match.groupdict().get("keyword") or handler_match.groupdict().get("positional")
+    if handler is None:
+        return None
+    return route_match.group("pos") or route_match.group("kw"), handler
+
+
+
+def _starlette_add_route_args(args: str) -> tuple[str, str] | None:
+    match = re.search(
+        r"^\s*['\"](?P<route>/[^'\"]*)['\"]\s*,\s*(?P<handler>[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)",
+        args,
+    )
+    if match is None:
+        return None
+    return match.group("route"), match.group("handler")
+
+
+
+def _starlette_route_method(args: str) -> str | None:
+    return _single_list_method(args)
+
+
+
+def _sanic_route_matches(lines: list[tuple[int, str]]) -> Iterable[tuple[int, str | None, str, str | None, str]]:
+    for index, (line_number, line) in enumerate(lines):
+        decorator_match = re.search(
+            r"^\s*@\w+\.(?P<method>get|post|put|patch|delete|head|options)\s*\(\s*['\"](?P<route>/[^'\"]*)['\"]\s*\)",
+            line,
+        )
+        if decorator_match is not None:
+            yield (
+                line_number,
+                decorator_match.group("method"),
+                decorator_match.group("route"),
+                _python_handler_after(lines, index),
+                line,
+            )
+            continue
+
+        add_route_match = re.search(
+            r"\b\w+\.add_route\s*\(\s*(?P<handler>[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\s*,\s*['\"](?P<route>/[^'\"]*)['\"](?P<args>[^)]*)\)",
+            line,
+        )
+        if add_route_match is None:
+            continue
+        yield (
+            line_number,
+            _sanic_route_method(add_route_match.group("args")),
+            add_route_match.group("route"),
+            add_route_match.group("handler"),
+            line,
+        )
+
+
+
+def _sanic_route_method(args: str) -> str | None:
+    return _single_list_method(args)
+
+
+
+def _tornado_route_matches(lines: list[tuple[int, str]]) -> Iterable[tuple[int, str | None, str, str | None, str]]:
+    text = _joined_lines(lines)
+    handler_methods = _tornado_handler_methods(text)
+    for route_match in re.finditer(
+        r"\(\s*r?['\"](?P<route>/[^'\"]*)['\"]\s*,\s*(?P<handler>[A-Za-z_]\w*)\s*\)",
+        text,
+    ):
+        handler = route_match.group("handler")
+        method = handler_methods.get(handler)
+        yield (
+            _line_for_offset(text, route_match.start()),
+            method,
+            route_match.group("route"),
+            f"{handler}#{method}" if method is not None else handler,
+            _compact_snippet(route_match.group(0)),
+        )
+
+
+
+def _tornado_handler_methods(text: str) -> dict[str, str | None]:
+    methods_by_handler: dict[str, str | None] = {}
+    for class_match in re.finditer(
+        r"class\s+(?P<class>[A-Za-z_]\w*)\s*\([^)]*RequestHandler[^)]*\)\s*:(?P<body>.*?)(?=\nclass\s+|\Z)",
+        text,
+        re.DOTALL,
+    ):
+        methods = re.findall(r"^\s+(?:async\s+)?def\s+(get|post|put|patch|delete|head|options)\s*\(", class_match.group("body"), re.MULTILINE)
+        methods_by_handler[class_match.group("class")] = methods[0] if len(methods) == 1 else None
+    return methods_by_handler
+
+
+
+def _aiohttp_route_matches(lines: list[tuple[int, str]]) -> Iterable[tuple[int, str | None, str, str | None, str]]:
+    for index, (line_number, line) in enumerate(lines):
+        decorator_match = re.search(
+            r"^\s*@\w+\.(?P<method>get|post|put|patch|delete|head|options)\s*\(\s*['\"](?P<route>/[^'\"]*)['\"]\s*\)",
+            line,
+        )
+        if decorator_match is not None:
+            yield (
+                line_number,
+                decorator_match.group("method"),
+                decorator_match.group("route"),
+                _python_handler_after(lines, index),
+                line,
+            )
+            continue
+
+        router_match = re.search(
+            r"\bapp\.router\.add_(?P<method>get|post|put|patch|delete|head|options)\s*\(\s*['\"](?P<route>/[^'\"]*)['\"]\s*,\s*(?P<handler>[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)",
+            line,
+        )
+        if router_match is None:
+            continue
+        yield (
+            line_number,
+            router_match.group("method"),
+            router_match.group("route"),
+            router_match.group("handler"),
+            line,
+        )
+
+
+
+def _bottle_route_matches(lines: list[tuple[int, str]]) -> Iterable[tuple[int, str | None, str, str | None, str]]:
+    for index, (line_number, line) in enumerate(lines):
+        route_match = re.search(r"^\s*@route\s*\(\s*['\"](?P<route>[^'\"]+)['\"](?P<args>[^)]*)\)", line)
+        if route_match is None:
+            continue
+        yield (
+            line_number,
+            _bottle_route_method(route_match.group("args")),
+            route_match.group("route"),
+            _python_handler_after(lines, index),
+            line,
+        )
+
+
+
+def _bottle_route_method(args: str) -> str | None:
+    method_match = re.search(r"\bmethod\s*=\s*(?:['\"](?P<string>[A-Za-z]+)['\"]|\[\s*['\"](?P<list>[A-Za-z]+)['\"]\s*\])", args)
+    method = method_match.group("string") or method_match.group("list") if method_match else None
+    return _normalized_method(method)
+
+
+
+def _spring_mapping_matches(lines: list[tuple[int, str]]) -> Iterable[tuple[int, str | None, str, str | None, str]]:
+    text = _joined_lines(lines)
+    for class_match in re.finditer(
+        r"(?P<annotations>(?:\s*@(?:RestController|Controller|RequestMapping)\b[^\n]*\n)*)"
+        r"\s*(?:public\s+)?class\s+(?P<class>[A-Za-z_]\w*)\b",
+        text,
+        re.IGNORECASE,
+    ):
+        class_name = class_match.group("class")
+        class_prefix = _spring_class_route_prefix(class_match.group("annotations") or "")
+        class_body_start = class_match.end()
+        class_body_end = _next_java_class_offset(text, class_body_start)
+        class_body = text[class_body_start:class_body_end]
+
+        for method_match in re.finditer(
+            r"(?P<annotation>@(?:Get|Post|Put|Patch|Delete|Request)Mapping\s*\([^)]*\))"
+            r"\s*(?:public|private|protected)?\s*"
+            r"[\w<>\[\], ?.@]+\s+"
+            r"(?P<method_name>[A-Za-z_]\w*)\s*\(",
+            class_body,
+            re.IGNORECASE,
+        ):
+            mapping = _spring_mapping_from_line(method_match.group("annotation"))
+            if mapping is None:
+                continue
+            method, route = mapping
+            yield (
+                _line_for_offset(text, class_body_start + method_match.start()),
+                method,
+                _join_route_parts(class_prefix, route) if class_prefix else route,
+                f"{class_name}#{method_match.group('method_name')}",
+                _compact_snippet(method_match.group(0)),
+            )
+
+
+def _spring_class_route_prefix(annotations: str) -> str | None:
+    for line in annotations.splitlines():
+        mapping = _spring_mapping_from_line(line)
+        if mapping is not None:
+            _, route = mapping
+            return route
+    return None
+
 
 
 def _spring_mapping_from_line(line: str) -> tuple[str | None, str] | None:
@@ -895,6 +1600,35 @@ def _adap_rest_api_mapping_matches(lines: list[tuple[int, str]]) -> Iterable[tup
         )
 
 
+def _spark_route_matches(lines: list[tuple[int, str]]) -> Iterable[tuple[int, str | None, str, str | None, str]]:
+    if not any("spark.Spark" in line for _, line in lines):
+        return
+    for line_number, line in lines:
+        route_match = re.search(
+            r'\b(?P<method>get|post|put|patch|delete|head|options)\s*\(\s*"(?P<route>/[^"]*)"\s*,\s*(?P<handler>[^);]+)',
+            line,
+        )
+        if route_match is None:
+            continue
+        yield (
+            line_number,
+            route_match.group("method"),
+            route_match.group("route"),
+            _spark_handler_name(route_match.group("handler")),
+            line,
+        )
+
+
+
+def _spark_handler_name(value: str) -> str | None:
+    handler = value.strip()
+    match = re.fullmatch(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*::[A-Za-z_]\w*", handler)
+    if match is None:
+        return None
+    return handler
+
+
+
 def _java_enterprise_matches(
     lines: list[tuple[int, str]],
 ) -> Iterable[tuple[int, EntrypointType, str, str | None, str | None, str | None, str, str]]:
@@ -983,6 +1717,409 @@ def _java_enterprise_matches(
         )
 
 
+def _go_route_matches(lines: list[tuple[int, str]]) -> Iterable[tuple[int, str | None, str, str | None, str]]:
+    for line_number, line in lines:
+        method_match = re.search(
+            r"\b[A-Za-z_]\w*\.(?P<method>GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS|Get|Post|Put|Patch|Delete|Head|Options)"
+            r'\s*\(\s*"(?P<route>/[^"]*)"\s*,\s*(?P<handler>[^,)]+)',
+            line,
+        )
+        if method_match is not None:
+            yield (
+                line_number,
+                method_match.group("method").lower(),
+                method_match.group("route"),
+                _go_handler_name(method_match.group("handler")),
+                line,
+            )
+            continue
+
+        handle_match = re.search(
+            r'\b[A-Za-z_]\w*\.Handle(?:Func)?\s*\(\s*"(?P<route>/[^"]*)"\s*,\s*(?P<handler>[^,)]+)',
+            line,
+        )
+        if handle_match is not None:
+            yield (
+                line_number,
+                None,
+                handle_match.group("route"),
+                _go_handler_name(handle_match.group("handler")),
+                line,
+            )
+
+
+
+def _go_handler_name(value: str) -> str | None:
+    handler = value.strip()
+    if handler.startswith("func"):
+        return None
+    match = re.fullmatch(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*", handler)
+    if match is None:
+        return None
+    return handler
+
+
+
+def _aspnet_route_matches(lines: list[tuple[int, str]]) -> Iterable[tuple[int, str | None, str, str | None, str]]:
+    text = _joined_lines(lines)
+    for class_match in re.finditer(
+        r"(?P<attributes>(?:\s*\[[^\]]+\]\s*)*)\s*"
+        r"(?:public\s+)?class\s+(?P<class>[A-Za-z_]\w*)\b",
+        text,
+        re.IGNORECASE,
+    ):
+        class_name = class_match.group("class")
+        class_prefix = _aspnet_route_template(class_match.group("attributes") or "")
+        class_body_start = class_match.end()
+        class_body_end = _next_csharp_class_offset(text, class_body_start)
+        class_body = text[class_body_start:class_body_end]
+        for method_match in re.finditer(
+            r"(?P<attribute>\[Http(?P<verb>Get|Post|Put|Patch|Delete|Head|Options)(?:\s*\(\s*\"(?P<route>[^\"]*)\"\s*\))?\])"
+            r"\s*public\s+[\w<>\[\], ?]+\s+(?P<method>[A-Za-z_]\w*)\s*\(",
+            class_body,
+            re.IGNORECASE,
+        ):
+            route = method_match.group("route") or ""
+            yield (
+                _line_for_offset(text, class_body_start + method_match.start()),
+                method_match.group("verb").lower(),
+                _aspnet_join_route_parts(class_prefix, route),
+                f"{class_name}#{method_match.group('method')}",
+                _compact_snippet(method_match.group(0)),
+            )
+
+
+
+def _aspnet_route_template(attributes: str) -> str | None:
+    match = re.search(r"\[Route\s*\(\s*\"(?P<route>[^\"]*)\"\s*\)\]", attributes, re.IGNORECASE)
+    if match is None:
+        return None
+    return match.group("route")
+
+
+
+def _aspnet_join_route_parts(base: str | None, route: str) -> str:
+    if route.startswith("/"):
+        return route
+    if base is None:
+        return f"/{route.strip('/')}"
+    if not route:
+        return f"/{base.strip('/')}"
+    return _join_route_parts(base, route)
+
+
+
+def _next_csharp_class_offset(text: str, start: int) -> int:
+    match = re.search(r"\n\s*(?:public\s+)?class\s+[A-Za-z_]\w*\b", text[start:])
+    return len(text) if match is None else start + match.start()
+
+
+
+def _rust_route_matches(lines: list[tuple[int, str]]) -> Iterable[tuple[int, str | None, str, str | None, str]]:
+    for index, (line_number, line) in enumerate(lines):
+        axum_match = re.search(
+            r'\.route\s*\(\s*"(?P<route>/[^"]*)"\s*,\s*'
+            r'(?P<method>get|post|put|patch|delete|head|options)\s*\(\s*(?P<handler>[^)]+)\s*\)',
+            line,
+        )
+        if axum_match is not None:
+            yield (
+                line_number,
+                axum_match.group("method"),
+                axum_match.group("route"),
+                _rust_handler_name(axum_match.group("handler")),
+                line,
+            )
+            continue
+
+        attribute_match = re.search(
+            r'#\[(?P<method>get|post|put|patch|delete|head|options)\s*\(\s*"(?P<route>/[^"]*)"\s*\)\]',
+            line,
+        )
+        if attribute_match is not None:
+            yield (
+                line_number,
+                attribute_match.group("method"),
+                attribute_match.group("route"),
+                _rust_handler_after(lines, index),
+                line,
+            )
+
+
+
+def _rust_handler_name(value: str) -> str | None:
+    handler = value.strip()
+    match = re.fullmatch(r"[A-Za-z_]\w*(?:::[A-Za-z_]\w*)*", handler)
+    if match is None:
+        return None
+    return handler
+
+
+
+def _rust_handler_after(lines: list[tuple[int, str]], index: int) -> str | None:
+    for _, candidate in lines[index + 1 : index + 5]:
+        match = re.search(r"^\s*(?:pub\s+)?(?:async\s+)?fn\s+(?P<name>[A-Za-z_]\w*)\s*\(", candidate)
+        if match is not None:
+            return match.group("name")
+        if candidate.strip() and not candidate.strip().startswith("#"):
+            continue
+    return None
+
+
+
+def _kotlin_route_matches(lines: list[tuple[int, str]]) -> Iterable[tuple[int, str | None, str, str | None, str]]:
+    for index, (line_number, line) in enumerate(lines):
+        ktor_match = re.search(
+            r'\b(?P<method>get|post|put|patch|delete|head|options)\s*\(\s*"(?P<route>/[^"]*)"'
+            r'\s*(?:,\s*::(?P<handler>[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*))?',
+            line,
+        )
+        if ktor_match is not None:
+            yield (
+                line_number,
+                ktor_match.group("method"),
+                ktor_match.group("route"),
+                ktor_match.group("handler"),
+                line,
+            )
+            continue
+
+        spring_mapping = _spring_mapping_from_line(line)
+        if spring_mapping is not None:
+            method, route = spring_mapping
+            yield line_number, method, route, _kotlin_handler_after(lines, index), line
+
+
+
+def _kotlin_handler_after(lines: list[tuple[int, str]], index: int) -> str | None:
+    for _, candidate in lines[index + 1 : index + 5]:
+        match = re.search(
+            r"^\s*(?:(?:public|private|protected|internal)\s+)?(?:suspend\s+)?fun\s+(?P<name>[A-Za-z_]\w*)\s*\(",
+            candidate,
+        )
+        if match is not None:
+            return match.group("name")
+        stripped = candidate.strip()
+        if stripped and not stripped.startswith("@"):
+            continue
+    return None
+
+
+
+def _play_route_matches(lines: list[tuple[int, str]]) -> Iterable[tuple[int, str | None, str, str | None, str]]:
+    for line_number, line in lines:
+        route_match = re.search(
+            r"^\s*(?P<method>GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+"
+            r"(?P<route>/\S*)\s+"
+            r"(?P<handler>controllers\.[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)",
+            line,
+        )
+        if route_match is None:
+            continue
+        yield (
+            line_number,
+            route_match.group("method").lower(),
+            route_match.group("route"),
+            route_match.group("handler"),
+            line,
+        )
+
+
+
+def _phoenix_route_matches(lines: list[tuple[int, str]]) -> Iterable[tuple[int, str | None, str, str | None, str]]:
+    scope_prefixes: list[tuple[str | None, str | None]] = []
+    for line_number, line in lines:
+        stripped = line.strip()
+        scope_match = re.search(
+            r'^scope\s+"(?P<scope>/[^"]*)"(?:\s*,\s*(?P<alias>[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*))?\s+do\s*$',
+            stripped,
+        )
+        if scope_match is not None:
+            scope_prefixes.append((scope_match.group("scope"), scope_match.group("alias")))
+            continue
+
+        if stripped == "end" and scope_prefixes:
+            scope_prefixes.pop()
+            continue
+
+        route_match = re.search(
+            r'^\s*(?P<method>get|post|put|patch|delete|head|options)\s+"(?P<route>/[^"]*)"\s*,\s*'
+            r'(?P<controller>[A-Z_]\w*(?:\.[A-Z_]\w*)*)\s*,\s*:(?P<action>[A-Za-z_]\w*)\b',
+            line,
+        )
+        if route_match is None:
+            continue
+
+        scope_prefix, scope_alias = scope_prefixes[-1] if scope_prefixes else (None, None)
+        route_path = _join_route_parts(scope_prefix, route_match.group("route")) if scope_prefix else route_match.group("route")
+        controller = route_match.group("controller")
+        handler = f"{scope_alias}.{controller}#{route_match.group('action')}" if scope_alias else f"{controller}#{route_match.group('action')}"
+        yield (
+            line_number,
+            route_match.group("method").lower(),
+            route_path,
+            handler,
+            line,
+        )
+
+
+
+def _clojure_route_matches(lines: list[tuple[int, str]]) -> Iterable[tuple[int, str | None, str, str | None, str]]:
+    for line_number, line in lines:
+        route_match = re.search(
+            r'^\s*\((?P<method>GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+"(?P<route>/[^"]*)"'
+            r'(?:\s+(?:\[\s*\]|[A-Za-z_][\w-]*))?\s+'
+            r'(?P<handler>[A-Za-z_][\w-]*(?:[./][A-Za-z_][\w-]*)*)\)?',
+            line,
+        )
+        if route_match is None:
+            continue
+        yield (
+            line_number,
+            route_match.group("method").lower(),
+            route_match.group("route"),
+            route_match.group("handler"),
+            line,
+        )
+
+
+
+def _servant_route_matches(lines: list[tuple[int, str]]) -> Iterable[tuple[int, str | None, str, str | None, str]]:
+    for line_number, line in lines:
+        if ":>" not in line:
+            continue
+        method_match = re.search(r"\b(?P<method>Get|Post|Put|Patch|Delete|Head|Options)\b", line)
+        route_tokens = list(re.finditer(r'(?:(?P<capture>Capture)\s+)?"(?P<segment>[^"]+)"', line))
+        if method_match is None or not route_tokens:
+            continue
+
+        segments: list[str] = []
+        for token in route_tokens:
+            segment = token.group("segment")
+            if token.group("capture") is not None:
+                segments.append(f"{{{segment}}}")
+            else:
+                segments.append(segment)
+        route_path = "/" + "/".join(segment.strip("/") for segment in segments if segment)
+        yield (
+            line_number,
+            method_match.group("method").lower(),
+            route_path,
+            None,
+            line,
+        )
+
+
+
+def _sinatra_route_matches(lines: list[tuple[int, str]]) -> Iterable[tuple[int, str | None, str, str | None, str]]:
+    for line_number, line in lines:
+        route_match = re.search(
+            r"^\s*(?P<method>get|post|put|patch|delete|head|options)\s+['\"](?P<route>/[^'\"]*)['\"](?P<rest>.*)$",
+            line,
+        )
+        if route_match is None:
+            continue
+        yield (
+            line_number,
+            route_match.group("method"),
+            route_match.group("route"),
+            _sinatra_handler_from_rest(route_match.group("rest")),
+            line,
+        )
+
+
+
+def _sinatra_handler_from_rest(rest: str) -> str | None:
+    handler_match = re.search(r"&method\s*\(\s*:(?P<handler>[A-Za-z_]\w*)\s*\)", rest)
+    if handler_match is None:
+        return None
+    return handler_match.group("handler")
+
+
+
+def _rails_route_matches(lines: list[tuple[int, str]]) -> Iterable[tuple[int, str | None, str, str | None, str]]:
+    for line_number, line in lines:
+        route_match = re.search(
+            r"^\s*(?P<method>get|post|put|patch|delete|match)\s+['\"](?P<route>/[^'\"]*)['\"](?P<rest>.*)$",
+            line,
+        )
+        if route_match is None:
+            continue
+
+        handler = _rails_handler_from_rest(route_match.group("rest"))
+        if handler is None:
+            continue
+        method = route_match.group("method")
+        yield line_number, _rails_route_method(method, route_match.group("rest")), route_match.group("route"), handler, line
+
+
+
+def _rails_handler_from_rest(rest: str) -> str | None:
+    match = re.search(r"(?:\bto:\s*|=>\s*)['\"](?P<handler>[A-Za-z_]\w*#[A-Za-z_]\w*)['\"]", rest)
+    if match is None:
+        return None
+    return match.group("handler")
+
+
+
+def _rails_route_method(method: str, rest: str) -> str | None:
+    if method != "match":
+        return method
+    match = re.search(r"\bvia:\s*:(?P<method>get|post|put|patch|delete)\b", rest)
+    if match is None:
+        return None
+    return match.group("method")
+
+
+
+def _laravel_route_matches(lines: list[tuple[int, str]]) -> Iterable[tuple[int, str | None, str, str | None, str]]:
+    for line_number, line in lines:
+        route_match = re.search(
+            r"\bRoute::(?P<method>get|post|put|patch|delete|match)\s*\(\s*(?P<args>.*)\s*\)\s*;?\s*$",
+            line,
+            re.IGNORECASE,
+        )
+        if route_match is None:
+            continue
+
+        method = route_match.group("method").lower()
+        parsed = _laravel_route_args(method, route_match.group("args"))
+        if parsed is None:
+            continue
+        route_path, handler = parsed
+        yield line_number, None if method == "match" else method, route_path, handler, line
+
+
+
+def _laravel_route_args(method: str, args: str) -> tuple[str, str] | None:
+    if method == "match":
+        route_match = re.search(r"\]\s*,\s*['\"](?P<route>/[^'\"]*)['\"]\s*,\s*(?P<handler>.*)$", args)
+    else:
+        route_match = re.search(r"^\s*['\"](?P<route>/[^'\"]*)['\"]\s*,\s*(?P<handler>.*)$", args)
+    if route_match is None:
+        return None
+    handler = _laravel_handler_name(route_match.group("handler"))
+    if handler is None:
+        return None
+    return route_match.group("route"), handler
+
+
+
+def _laravel_handler_name(value: str) -> str | None:
+    string_handler = re.search(r"['\"](?P<controller>[A-Za-z_]\w*)@(?P<action>[A-Za-z_]\w*)['\"]", value)
+    if string_handler is not None:
+        return f"{string_handler.group('controller')}@{string_handler.group('action')}"
+
+    array_handler = re.search(
+        r"\[\s*(?P<controller>[A-Za-z_]\w*)::class\s*,\s*['\"](?P<action>[A-Za-z_]\w*)['\"]\s*\]",
+        value,
+    )
+    if array_handler is None:
+        return None
+    return f"{array_handler.group('controller')}@{array_handler.group('action')}"
+
+
+
 def _javascript_url_config_matches(lines: list[tuple[int, str]]) -> Iterable[tuple[int, str, str]]:
     for line_number, line in lines:
         match = re.search(
@@ -994,21 +2131,42 @@ def _javascript_url_config_matches(lines: list[tuple[int, str]]) -> Iterable[tup
             yield line_number, match.group("route"), line
 
 
-def _django_urlpatterns_matches(lines: list[tuple[int, str]]) -> Iterable[tuple[int, str, str]]:
+def _django_urlpatterns_matches(lines: list[tuple[int, str]]) -> Iterable[tuple[int, str, str | None, str]]:
     for index, (line_number, line) in enumerate(lines):
         if re.search(r"\b(?:path|re_path)\s*\(", line) is None:
             continue
 
-        same_line_route = re.search(r"\b(?:path|re_path)\s*\(\s*['\"](?P<route>[^'\"]+)", line)
+        call_text = _python_call_text(lines, index)
+        handler = _django_handler_from_call(call_text)
+        same_line_route = re.search(r"\b(?:path|re_path)\s*\(\s*(?:r)?['\"](?P<route>[^'\"]+)", line)
         if same_line_route is not None:
-            yield line_number, same_line_route.group("route"), line
+            yield line_number, same_line_route.group("route"), handler, line
             continue
 
         for route_line_number, route_line in lines[index + 1 : index + 5]:
-            route_match = re.search(r"['\"](?P<route>[^'\"]+)['\"]", route_line)
+            route_match = re.search(r"(?:r)?['\"](?P<route>[^'\"]+)['\"]", route_line)
             if route_match is not None:
-                yield route_line_number, route_match.group("route"), route_line
+                yield route_line_number, route_match.group("route"), handler, route_line
                 break
+
+
+
+def _python_call_text(lines: list[tuple[int, str]], index: int, max_lines: int = 8) -> str:
+    return "\n".join(line for _, line in lines[index : index + max_lines])
+
+
+
+def _django_handler_from_call(call_text: str) -> str | None:
+    match = re.search(
+        r"\b(?:path|re_path)\s*\(\s*"
+        r"(?:r)?['\"][^'\"]+['\"]\s*,\s*"
+        r"(?P<handler>[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*\.as_view\s*\(\s*\)|[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)",
+        call_text,
+        re.DOTALL,
+    )
+    if match is None:
+        return None
+    return re.sub(r"\s+", "", match.group("handler"))
 
 
 def _iter_indexed_lines(repo_root: Path, files: list[FileRecord]) -> Iterable[tuple[FileRecord, list[tuple[int, str]]]]:
@@ -1063,9 +2221,56 @@ def _append_worker_evidence(workers: list[Worker], key: tuple[str, str], evidenc
 
 
 def _is_next_api_file(relative_path: str) -> bool:
-    return relative_path.startswith("pages/api/") or (
-        relative_path.startswith("app/api/") and relative_path.endswith(NEXT_ROUTE_SUFFIXES)
-    )
+    return relative_path.startswith("pages/api/") or _is_next_app_route_file(relative_path)
+
+
+def _is_next_app_route_file(relative_path: str) -> bool:
+    return relative_path.startswith("app/api/") and Path(relative_path).name in NEXT_ROUTE_FILENAMES
+
+
+def _is_javascript_file(relative_path: str) -> bool:
+    return Path(relative_path).suffix.lower() in {".js", ".jsx", ".ts", ".tsx"}
+
+
+def _is_nestjs_source(lines: list[tuple[int, str]]) -> bool:
+    return any("@nestjs/common" in line for _, line in lines)
+
+
+def _is_hapi_source(lines: list[tuple[int, str]]) -> bool:
+    return any("@hapi/hapi" in line or "require(\"hapi\")" in line or "require('hapi')" in line for _, line in lines)
+
+
+def _next_api_route_path(relative_path: str) -> str | None:
+    parts = list(Path(relative_path).parts)
+    if relative_path.startswith("pages/api/"):
+        route_parts = parts[1:]
+        route_parts[-1] = Path(route_parts[-1]).stem
+    elif _is_next_app_route_file(relative_path):
+        route_parts = parts[1:-1]
+    else:
+        return None
+
+    if len(route_parts) > 1 and route_parts[-1] == "index":
+        route_parts = route_parts[:-1]
+    return "/" + "/".join(_next_route_segment(part) for part in route_parts)
+
+
+def _next_route_segment(segment: str) -> str:
+    if segment.startswith("[[...") and segment.endswith("]]"):
+        return f"{{{segment[5:-2]}}}"
+    if segment.startswith("[...") and segment.endswith("]"):
+        return f"{{{segment[4:-1]}}}"
+    if segment.startswith("[") and segment.endswith("]"):
+        return f"{{{segment[1:-1]}}}"
+    return segment
+
+
+def _next_app_route_method(lines: list[tuple[int, str]]) -> str | None:
+    for _, line in lines:
+        match = NEXT_APP_ROUTE_METHOD.search(line)
+        if match is not None:
+            return match.group("method").lower()
+    return None
 
 
 def _is_tomcat_web_xml_file(relative_path: str) -> bool:
@@ -1097,8 +2302,103 @@ def _is_java_file(relative_path: str) -> bool:
     return Path(relative_path).suffix.lower() == ".java"
 
 
+
+def _is_python_file(relative_path: str) -> bool:
+    return Path(relative_path).suffix.lower() == ".py"
+
+
+
+def _is_pyramid_source(lines: list[tuple[int, str]]) -> bool:
+    return any("pyramid" in line or "Configurator(" in line for _, line in lines)
+
+
+
+def _is_starlette_source(lines: list[tuple[int, str]]) -> bool:
+    return any("starlette" in line or "Starlette(" in line for _, line in lines)
+
+
+
+def _is_sanic_source(lines: list[tuple[int, str]]) -> bool:
+    return any("from sanic import" in line or "import sanic" in line or "Sanic(" in line for _, line in lines)
+
+
+
+def _is_tornado_source(lines: list[tuple[int, str]]) -> bool:
+    return any("tornado.web" in line for _, line in lines)
+
+
+
+def _is_aiohttp_source(lines: list[tuple[int, str]]) -> bool:
+    return any("aiohttp" in line or "RouteTableDef" in line for _, line in lines)
+
+
+
+def _is_bottle_file(relative_path: str) -> bool:
+    return _is_python_file(relative_path)
+
+
+
+def _is_bottle_source(lines: list[tuple[int, str]]) -> bool:
+    return any("from bottle import" in line or "import bottle" in line or "Bottle(" in line for _, line in lines)
+
+
+
+def _is_go_file(relative_path: str) -> bool:
+    return Path(relative_path).suffix.lower() == ".go"
+
+
+
+def _is_csharp_file(relative_path: str) -> bool:
+    return Path(relative_path).suffix.lower() == ".cs"
+
+
+
+def _is_rust_file(relative_path: str) -> bool:
+    return Path(relative_path).suffix.lower() == ".rs"
+
+
+
+def _is_kotlin_file(relative_path: str) -> bool:
+    return Path(relative_path).suffix.lower() == ".kt"
+
+
+
+def _is_play_routes_file(relative_path: str) -> bool:
+    return Path(relative_path).parts[-2:] == ("conf", "routes")
+
+
+
+def _is_elixir_file(relative_path: str) -> bool:
+    return Path(relative_path).suffix.lower() in {".ex", ".exs"}
+
+
+
+def _is_clojure_file(relative_path: str) -> bool:
+    return Path(relative_path).suffix.lower() in {".clj", ".cljs", ".cljc"}
+
+
+
+def _is_haskell_file(relative_path: str) -> bool:
+    return Path(relative_path).suffix.lower() == ".hs"
+
+
+
+def _is_ruby_file(relative_path: str) -> bool:
+    return Path(relative_path).suffix.lower() == ".rb"
+
+
+
+def _is_sinatra_source(lines: list[tuple[int, str]]) -> bool:
+    return any(re.search(r"\brequire\s+['\"]sinatra", line) or "Sinatra::Base" in line for _, line in lines)
+
+
+
+def _is_php_file(relative_path: str) -> bool:
+    return Path(relative_path).suffix.lower() == ".php"
+
+
 def _is_javascript_url_config_file(relative_path: str) -> bool:
-    return Path(relative_path).suffix.lower() in {".js", ".jsx", ".ts", ".tsx", ".cc"}
+    return _is_javascript_file(relative_path) or Path(relative_path).suffix.lower() == ".cc"
 
 
 def _has_xml_token(relative_path: str, lines: list[tuple[int, str]], token: str) -> bool:

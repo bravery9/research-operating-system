@@ -13,6 +13,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 .venv/bin/pytest tests/test_config.py -v
 .venv/bin/pytest tests/test_audit_config.py -v
 .venv/bin/pytest tests/test_sarif_report.py -v
+.venv/bin/pytest tests/test_review_queue_report.py -v
 .venv/bin/pytest tests/test_html_report.py -v
 .venv/bin/pytest tests/test_audit_cli.py -v
 .venv/bin/pytest tests/test_reasoning_models.py -v
@@ -28,6 +29,28 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 .venv/bin/pytest tests/test_patchdiff_cli.py -v
 
 # Run one test
+.venv/bin/pytest tests/test_detectors.py::test_enriches_express_route_with_static_handler_names -v
+.venv/bin/pytest tests/test_detectors.py::test_detects_hapi_routes_with_static_handlers -v
+.venv/bin/pytest tests/test_detectors.py::test_detects_nestjs_routes_with_controller_prefix_and_handlers -v
+.venv/bin/pytest tests/test_detectors.py::test_detects_aspnet_routes_with_static_handlers -v
+.venv/bin/pytest tests/test_detectors.py::test_detects_rust_routes_with_static_handlers -v
+.venv/bin/pytest tests/test_detectors.py::test_detects_kotlin_routes_with_static_handlers -v
+.venv/bin/pytest tests/test_detectors.py::test_detects_scala_play_routes_with_static_handlers -v
+.venv/bin/pytest tests/test_detectors.py::test_detects_phoenix_routes_with_static_handlers -v
+.venv/bin/pytest tests/test_detectors.py::test_detects_clojure_routes_with_static_handlers -v
+.venv/bin/pytest tests/test_detectors.py::test_detects_haskell_servant_routes_with_static_methods -v
+.venv/bin/pytest tests/test_detectors.py::test_detects_bottle_routes_with_static_handlers -v
+.venv/bin/pytest tests/test_detectors.py::test_detects_aiohttp_routes_with_static_handlers -v
+.venv/bin/pytest tests/test_detectors.py::test_detects_tornado_routes_with_static_handlers -v
+.venv/bin/pytest tests/test_detectors.py::test_detects_sanic_routes_with_static_handlers -v
+.venv/bin/pytest tests/test_detectors.py::test_detects_starlette_routes_with_static_handlers -v
+.venv/bin/pytest tests/test_detectors.py::test_detects_go_http_routes_with_static_handlers -v
+.venv/bin/pytest tests/test_detectors.py::test_detects_rails_routes_with_static_handlers -v
+.venv/bin/pytest tests/test_detectors.py::test_detects_sinatra_routes_with_static_methods -v
+.venv/bin/pytest tests/test_detectors.py::test_detects_laravel_routes_with_static_handlers -v
+.venv/bin/pytest tests/test_detectors.py::test_detects_java_spark_routes_with_static_handlers -v
+.venv/bin/pytest tests/test_detectors.py::test_enriches_fastapi_route_with_following_handler -v
+.venv/bin/pytest tests/test_detectors.py::test_detects_nextjs_pages_and_app_api_routes -v
 .venv/bin/pytest tests/test_flow.py::test_static_flow_links_exact_handler_to_taskengine_worker -v
 
 # Quality gates
@@ -66,7 +89,7 @@ local authorized repo
 → primitive candidate classification
 → bounded static flow/dataflow enrichment
 → evidence graph projection
-→ local audit artifacts including SARIF export
+→ local audit artifacts including SARIF and review-queue exports
 → optional deterministic offline reasoning over audit_result.json
 → optional deterministic local patch-diff correlation against audit_result.json
 → local reasoning and patch-diff artifacts for human review
@@ -88,6 +111,7 @@ Generated audit artifacts:
 ```text
 outputs/audit_result.json
 outputs/audit_result.sarif.json
+outputs/audit_review_queue.jsonl
 outputs/research_brief.md
 outputs/evidence_graph.json
 outputs/evidence_viewer.html
@@ -109,4 +133,4 @@ outputs/patch_diff_brief.md
 
 ## Reporting guidance
 
-All outputs must remain local, evidence-oriented, and conservative. Use candidate/hypothesis/missing-evidence language. Every substantive claim should point to evidence IDs or explicitly describe missing evidence. The static evidence viewer is a self-contained local HTML file. SARIF output is a deterministic local projection of existing audit evidence for manual review; it is not Semgrep output, must not run Semgrep, and must not imply confirmed vulnerability or exploitability. The `audit` command may load local YAML config for indexing, detector tuning, and static-flow caps, but config files must not execute code, fetch network resources, enable LLM providers, or run Semgrep in the current implementation. The `reason` command reads structured audit JSON only and uses deterministic offline reasoning. The `patch-diff` command consumes local audit JSON plus local patch or git-diff input only; it must not apply patches, check out refs, fetch network resources, or execute target code. Do not add a server, remote assets, browser automation, live/network LLM calls, public scanning, target execution, exploit steps, exploit payload generation, or vulnerability/exploitability confirmations.
+All outputs must remain local, evidence-oriented, and conservative. Use candidate/hypothesis/missing-evidence language. Every substantive claim should point to evidence IDs or explicitly describe missing evidence. The static evidence viewer is a self-contained local HTML file. SARIF output is a deterministic local projection of existing audit evidence for manual review; it is not Semgrep output, must not run Semgrep, and must not imply confirmed vulnerability or exploitability. Review-queue JSONL is a deterministic local triage projection of existing audit candidates; it must not auto-fix code, run Semgrep, execute target code, or imply confirmed vulnerability/exploitability. The `audit` command may load local YAML config for indexing, detector tuning, and static-flow caps, but config files must not execute code, fetch network resources, enable LLM providers, or run Semgrep in the current implementation. The `reason` command reads structured audit JSON only and uses deterministic offline reasoning. The `patch-diff` command consumes local audit JSON plus local patch or git-diff input only; it must not apply patches, check out refs, fetch network resources, or execute target code. Do not add a server, remote assets, browser automation, live/network LLM calls, public scanning, target execution, exploit steps, exploit payload generation, auto-fixes, or vulnerability/exploitability confirmations.
