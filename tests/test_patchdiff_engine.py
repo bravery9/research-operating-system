@@ -1,4 +1,5 @@
 from invariant_os.core.models import (
+    AUDIT_SCHEMA_VERSION,
     AuditResult,
     AuditSummary,
     BoundaryCandidate,
@@ -99,7 +100,7 @@ def test_build_patch_diff_result_correlates_line_overlap_and_variant_candidate()
     )
 
     assert result.schema_version == "0.7"
-    assert result.source_schema_version == "0.5"
+    assert result.source_schema_version == AUDIT_SCHEMA_VERSION
     assert result.summary.changed_files == 1
     assert result.summary.hunks == 1
     assert result.summary.correlations >= 1

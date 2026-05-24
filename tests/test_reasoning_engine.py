@@ -1,4 +1,5 @@
 from invariant_os.core.models import (
+    AUDIT_SCHEMA_VERSION,
     AuditResult,
     AuditSummary,
     BoundaryCandidate,
@@ -175,7 +176,7 @@ def test_reasoning_engine_builds_expected_categories_from_audit_result():
     assert ReasoningCategory.MISSING_EVIDENCE in categories
     assert ReasoningCategory.SAFE_NEXT_STEP in categories
     assert result.schema_version == "0.6"
-    assert result.source_schema_version == "0.5"
+    assert result.source_schema_version == AUDIT_SCHEMA_VERSION
     assert result.source_project == audit.project
     assert result.summary.high_value_surfaces > 0
     assert result.summary.invariant_hypotheses > 0
