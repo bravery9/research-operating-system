@@ -28,7 +28,7 @@ invariant-os patch-diff outputs/audit_result.json --patch-file change.patch --ou
 
 The current implementation is a deterministic local artifact pipeline. It includes repository indexing, broad static detector coverage, trust-boundary inference, primitive classification, bounded static-flow enrichment, evidence graph generation, SARIF export, review-queue JSONL export, deterministic offline reasoning, and local patch-diff correlation.
 
-Intentionally deferred areas include live/network LLM providers, Semgrep execution, hosted scanning, target execution, exploit automation, a server-backed web UI, team workflow, fix advisors, and regression-test generation. These remain future work behind the local-first safety model.
+Deferred local-product areas include a server-backed web UI, team workflow, fix advisors, and regression-test generation. Live/network LLM providers, Semgrep execution, hosted scanning, target execution, and exploit automation remain outside the current local-first safety model.
 
 For development from this repository:
 
@@ -189,5 +189,5 @@ The v0.7 patch-diff layer parses changed files and hunks, links them to existing
 - Add semantic focus modes for import/upload, worker/queue, template/workflow, and URL/internal-request research.
 - Modularize detector families as coverage grows, while preserving deterministic output and existing detector tuning.
 - Expand configuration for report caps and local artifact selection.
-- Design optional LLM-assisted hypothesis generation behind the existing safety model, with deterministic tests and evidence-linked outputs before enabling real providers.
-- Evaluate optional Semgrep integration as a disabled-by-default local tool path that never runs unless explicitly configured and available locally.
+- Design optional LLM-assisted hypothesis generation behind the existing safety model, limited to deterministic tests and evidence-linked output contracts without enabling live providers.
+- Evaluate optional Semgrep-shaped local import/export contracts without executing Semgrep or treating SARIF/review-queue artifacts as Semgrep output.
