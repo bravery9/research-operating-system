@@ -28,7 +28,7 @@ invariant-os patch-diff outputs/audit_result.json --patch-file change.patch --ou
 
 The current implementation is a deterministic local artifact pipeline. It includes repository indexing, broad static detector coverage, trust-boundary inference, primitive classification, bounded static-flow enrichment, evidence graph generation, SARIF export, review-queue JSONL export, deterministic offline reasoning, and local patch-diff correlation.
 
-Deferred local-product areas include a server-backed web UI, team workflow, fix advisors, and regression-test generation. Live/network LLM providers, Semgrep execution, hosted scanning, target execution, and exploit automation remain outside the current local-first safety model.
+Deferred local-product areas include static evidence-workspace UX improvements, team handoff workflow, fix advisors, and regression-test generation. Live/network LLM providers, Semgrep execution, hosted scanning, target execution, and exploit automation remain outside the current local-first safety model.
 
 For development from this repository:
 
