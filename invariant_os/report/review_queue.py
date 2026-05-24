@@ -2,6 +2,7 @@ import json
 from typing import Any
 
 from invariant_os.core.models import (
+    REVIEW_QUEUE_SCHEMA_VERSION,
     AuditResult,
     BoundaryCandidate,
     Evidence,
@@ -120,7 +121,7 @@ def _build_row(
 ) -> dict[str, Any]:
     primary = _primary_evidence(evidence)
     return {
-        "schema_version": "0.10",
+        "schema_version": REVIEW_QUEUE_SCHEMA_VERSION,
         "queue_type": "manual_review_candidate",
         "category": category,
         "candidate_id": candidate_id,

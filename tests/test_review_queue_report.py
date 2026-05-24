@@ -1,6 +1,7 @@
 import json
 
 from invariant_os.core.models import (
+    REVIEW_QUEUE_SCHEMA_VERSION,
     AuditResult,
     AuditSummary,
     BoundaryCandidate,
@@ -73,7 +74,7 @@ def test_review_queue_renders_primitive_candidate_row():
 
     assert len(rows) == 1
     row = rows[0]
-    assert row["schema_version"] == "0.10"
+    assert row["schema_version"] == REVIEW_QUEUE_SCHEMA_VERSION
     assert row["queue_type"] == "manual_review_candidate"
     assert row["category"] == "primitive"
     assert row["candidate_id"] == "primitive_0001"

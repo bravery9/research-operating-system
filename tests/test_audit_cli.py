@@ -104,7 +104,7 @@ def test_audit_writes_java_tomcat_fixture_signals(tmp_path):
     assert html_path.exists()
     assert sarif_path.exists()
     assert review_queue_path.exists()
-    assert audit_result.schema_version == "0.5"
+    assert audit_result.schema_version == "0.10"
     assert audit_result.static_flow_candidates
     assert audit_result.summary.static_flow_candidates == len(audit_result.static_flow_candidates)
     assert all(candidate.missing_evidence for candidate in audit_result.static_flow_candidates)
