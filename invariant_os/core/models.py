@@ -3,6 +3,10 @@ from enum import Enum
 from pydantic import BaseModel, Field
 
 
+AUDIT_SCHEMA_VERSION = "0.10"
+REVIEW_QUEUE_SCHEMA_VERSION = "0.10"
+
+
 class EntrypointType(str, Enum):
     HTTP_ROUTE = "http_route"
     CLI_COMMAND = "cli_command"
@@ -412,5 +416,5 @@ class AuditResult(BaseModel):
     evidence_graph: EvidenceGraph = Field(default_factory=EvidenceGraph)
     summary: AuditSummary
     safety: SafetyMetadata = Field(default_factory=SafetyMetadata)
-    schema_version: str = "0.5"
+    schema_version: str = AUDIT_SCHEMA_VERSION
     tool: str = "invariant-os"

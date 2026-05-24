@@ -2,6 +2,8 @@ from pathlib import Path
 
 from invariant_os.core.evidence import build_pattern_evidence, make_evidence_id
 from invariant_os.core.models import (
+    AUDIT_SCHEMA_VERSION,
+    REVIEW_QUEUE_SCHEMA_VERSION,
     AuditResult,
     AuditSummary,
     BoundaryType,
@@ -67,7 +69,7 @@ def test_audit_result_json_dump_includes_schema_tool_and_safety_principle():
 
     dumped = result.model_dump(mode="json")
 
-    assert dumped["schema_version"] == "0.5"
+    assert dumped["schema_version"] == AUDIT_SCHEMA_VERSION
     assert dumped["tool"] == "invariant-os"
     assert dumped["static_flow_candidates"] == []
     assert dumped["summary"]["static_flow_candidates"] == 0
@@ -206,7 +208,7 @@ def test_evidence_graph_models_have_expected_wire_values():
     ]
 
 
-def test_audit_result_defaults_to_empty_evidence_graph_and_schema_05():
+def test_audit_result_defaults_to_empty_evidence_graph_and_schema_010():
     result = AuditResult(
         project=Project(name="example", root="/repo"),
         summary=AuditSummary(
@@ -220,11 +222,15 @@ def test_audit_result_defaults_to_empty_evidence_graph_and_schema_05():
         ),
     )
 
-    dumped = result.model_dump(mode="json")
+    assert result.schema_version == "0.10"
+    assert result.schema_version == AUDIT_SCHEMA_VERSION
+    assert result.evidence_graph.nodes == []
+    assert result.evidence_graph.edges == []
 
-    assert dumped["schema_version"] == "0.5"
-    assert dumped["static_flow_candidates"] == []
-    assert dumped["evidence_graph"] == {"nodes": [], "edges": []}
+
+def test_schema_version_constants_are_aligned_for_v010_release():
+    assert AUDIT_SCHEMA_VERSION == "0.10"
+    assert REVIEW_QUEUE_SCHEMA_VERSION == "0.10"
 
 
 def test_patch_diff_result_defaults_to_schema_07_and_safe_metadata():
