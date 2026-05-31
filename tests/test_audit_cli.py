@@ -7,7 +7,7 @@ import sys
 from typer.testing import CliRunner
 
 from invariant_os.cli import app
-from invariant_os.core.models import AuditResult, BoundaryType, ConsumerType, PrimitiveType
+from invariant_os.core.models import AuditResult, BoundaryType, ConsumerType, FocusMetadata, PrimitiveType
 
 
 runner = CliRunner()
@@ -72,6 +72,19 @@ def test_audit_writes_artifacts_for_fixture(tmp_path):
     assert audit_result.evidence_graph.nodes
     assert audit_result.evidence_graph.edges
     assert any(edge.type.value == "defined_in" for edge in audit_result.evidence_graph.edges)
+    assert audit_result.focus == FocusMetadata(
+        mode="all",
+        label="All Evidence",
+        description="Default lens over all deterministic audit evidence.",
+        boundary_matches=len(audit_result.boundaries),
+        primitive_matches=len(audit_result.primitive_candidates),
+        static_flow_matches=len(audit_result.static_flow_candidates),
+        total_matches=(
+            len(audit_result.boundaries)
+            + len(audit_result.primitive_candidates)
+            + len(audit_result.static_flow_candidates)
+        ),
+    )
     graph_payload = graph_path.read_text(encoding="utf-8")
     assert '"nodes"' in graph_payload
     assert '"edges"' in graph_payload
