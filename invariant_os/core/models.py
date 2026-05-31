@@ -283,6 +283,16 @@ class AuditSummary(BaseModel):
     static_flow_candidates: int
 
 
+class FocusMetadata(BaseModel):
+    mode: str = "all"
+    label: str = "All Evidence"
+    description: str = "Default lens over all deterministic audit evidence."
+    boundary_matches: int = 0
+    primitive_matches: int = 0
+    static_flow_matches: int = 0
+    total_matches: int = 0
+
+
 class SafetyMetadata(BaseModel):
     scope: str = "authorized_local_repo_analysis_only"
     principle: str = "LLM proposes. Tools prove. Human approves."
@@ -414,6 +424,7 @@ class AuditResult(BaseModel):
     primitive_candidates: list[PrimitiveCandidate] = Field(default_factory=list)
     static_flow_candidates: list[StaticFlowCandidate] = Field(default_factory=list)
     evidence_graph: EvidenceGraph = Field(default_factory=EvidenceGraph)
+    focus: FocusMetadata = Field(default_factory=FocusMetadata)
     summary: AuditSummary
     safety: SafetyMetadata = Field(default_factory=SafetyMetadata)
     schema_version: str = AUDIT_SCHEMA_VERSION

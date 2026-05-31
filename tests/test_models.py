@@ -18,6 +18,7 @@ from invariant_os.core.models import (
     EvidenceGraphNodeType,
     EvidenceType,
     FileRecord,
+    FocusMetadata,
     PatchChangedFile,
     PatchChangeType,
     PatchCorrelation,
@@ -226,6 +227,31 @@ def test_audit_result_defaults_to_empty_evidence_graph_and_schema_010():
     assert result.schema_version == AUDIT_SCHEMA_VERSION
     assert result.evidence_graph.nodes == []
     assert result.evidence_graph.edges == []
+
+
+def test_audit_result_defaults_to_all_focus_metadata():
+    result = AuditResult(
+        project=Project(name="example", root="/repo"),
+        summary=AuditSummary(
+            files=0,
+            entrypoints=0,
+            consumers=0,
+            workers=0,
+            boundaries=0,
+            primitive_candidates=0,
+            static_flow_candidates=0,
+        ),
+    )
+
+    assert result.focus == FocusMetadata(
+        mode="all",
+        label="All Evidence",
+        description="Default lens over all deterministic audit evidence.",
+        boundary_matches=0,
+        primitive_matches=0,
+        static_flow_matches=0,
+        total_matches=0,
+    )
 
 
 def test_schema_version_constants_are_aligned_for_v010_release():

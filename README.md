@@ -47,6 +47,7 @@ Options:
 - `--output-dir`: directory for generated artifacts. Defaults to `outputs`.
 - `--max-file-bytes`: skip files larger than this value. Defaults to `1000000`.
 - `--config`: local `invariant-os.yml` config file for per-repository tuning. If omitted, `<repo>/invariant-os.yml` is loaded when present.
+- `--focus`: semantic focus lens for deterministic prioritization and artifact presentation. Supported values are `all`, `import-upload`, `worker-queue`, `template-workflow`, and `url-internal-request`. Defaults to `all`.
 
 ### Configuration
 
@@ -64,6 +65,7 @@ ignore:
     - fixtures/large
 
 focus:
+  mode: all
   files:
     - src/
     - conf/
@@ -91,6 +93,8 @@ semgrep:
 ```
 
 Precedence is built-in defaults, auto-discovered `<repo>/invariant-os.yml`, explicit `--config`, CLI scalar overrides such as `--max-file-bytes`, then runtime output-directory ignores. Config paths must be local repository-relative paths and detector names must be known built-in pattern names. `llm.enabled` and `semgrep.enabled` must currently remain `false`; config files do not enable network calls, external tool execution, target code execution, exploit payload generation, or vulnerability confirmation.
+
+`focus.mode` only changes deterministic prioritization and artifact presentation; it does not disable detectors, execute targets, run Semgrep, call LLM providers, or confirm vulnerabilities.
 
 ### `reason`
 

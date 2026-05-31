@@ -44,6 +44,41 @@ def test_load_audit_config_applies_max_file_bytes_override(tmp_path):
     assert config.max_file_bytes == 123
 
 
+def test_load_audit_config_accepts_focus_mode(tmp_path):
+    config_path = tmp_path / "invariant-os.yml"
+    config_path.write_text("focus:\n  mode: import-upload\n", encoding="utf-8")
+
+    config = load_audit_config(tmp_path, config_path)
+
+    assert config.focus.mode == "import-upload"
+
+
+def test_load_audit_config_rejects_unknown_focus_mode(tmp_path):
+    config_path = tmp_path / "invariant-os.yml"
+    config_path.write_text("focus:\n  mode: internet\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="focus.mode"):
+        load_audit_config(tmp_path, config_path)
+
+
+@pytest.mark.parametrize("yaml_text", ["focus:\n  mode: ''\n", "focus:\n  mode:\n"])
+def test_load_audit_config_rejects_blank_focus_mode(tmp_path, yaml_text):
+    config_path = tmp_path / "invariant-os.yml"
+    config_path.write_text(yaml_text, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="focus.mode"):
+        load_audit_config(tmp_path, config_path)
+
+
+def test_load_audit_config_focus_mode_cli_override_wins(tmp_path):
+    config_path = tmp_path / "invariant-os.yml"
+    config_path.write_text("focus:\n  mode: import-upload\n", encoding="utf-8")
+
+    config = load_audit_config(tmp_path, config_path, focus_mode="worker-queue")
+
+    assert config.focus.mode == "worker-queue"
+
+
 @pytest.mark.parametrize(
     "yaml_text",
     [

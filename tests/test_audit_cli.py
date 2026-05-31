@@ -7,7 +7,7 @@ import sys
 from typer.testing import CliRunner
 
 from invariant_os.cli import app
-from invariant_os.core.models import AuditResult, BoundaryType, ConsumerType, PrimitiveType
+from invariant_os.core.models import AuditResult, BoundaryType, ConsumerType, FocusMetadata, PrimitiveType
 
 
 runner = CliRunner()
@@ -72,6 +72,19 @@ def test_audit_writes_artifacts_for_fixture(tmp_path):
     assert audit_result.evidence_graph.nodes
     assert audit_result.evidence_graph.edges
     assert any(edge.type.value == "defined_in" for edge in audit_result.evidence_graph.edges)
+    assert audit_result.focus == FocusMetadata(
+        mode="all",
+        label="All Evidence",
+        description="Default lens over all deterministic audit evidence.",
+        boundary_matches=len(audit_result.boundaries),
+        primitive_matches=len(audit_result.primitive_candidates),
+        static_flow_matches=len(audit_result.static_flow_candidates),
+        total_matches=(
+            len(audit_result.boundaries)
+            + len(audit_result.primitive_candidates)
+            + len(audit_result.static_flow_candidates)
+        ),
+    )
     graph_payload = graph_path.read_text(encoding="utf-8")
     assert '"nodes"' in graph_payload
     assert '"edges"' in graph_payload
@@ -80,6 +93,33 @@ def test_audit_writes_artifacts_for_fixture(tmp_path):
     ]
     assert review_queue_rows
     assert all(row["queue_type"] == "manual_review_candidate" for row in review_queue_rows)
+
+
+def test_audit_accepts_focus_option_and_writes_focus_metadata(tmp_path):
+    fixture = Path(__file__).parent / "fixtures" / "mini_express_app"
+    output_dir = tmp_path / "focus-output"
+
+    result = runner.invoke(
+        app,
+        ["audit", str(fixture), "--output-dir", str(output_dir), "--focus", "import-upload"],
+    )
+
+    assert result.exit_code == 0
+    audit_result = AuditResult.model_validate_json(
+        (output_dir / "audit_result.json").read_text(encoding="utf-8")
+    )
+    assert audit_result.focus.mode == "import-upload"
+    assert audit_result.focus.label == "Import / Upload"
+    assert audit_result.focus.total_matches >= 0
+
+
+def test_audit_rejects_unknown_focus_option(tmp_path):
+    fixture = Path(__file__).parent / "fixtures" / "mini_express_app"
+
+    result = runner.invoke(app, ["audit", str(fixture), "--focus", "internet"])
+
+    assert result.exit_code != 0
+    assert "focus.mode" in result.output
 
 
 def test_audit_writes_java_tomcat_fixture_signals(tmp_path):
@@ -327,6 +367,22 @@ def test_audit_uses_yaml_max_file_bytes_without_cli_override(tmp_path):
         (output_dir / "audit_result.json").read_text(encoding="utf-8")
     )
     assert [record.path for record in audit_result.files] == ["small.py"]
+
+
+def test_audit_uses_yaml_focus_mode_without_cli_override(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "app.py").write_text("print('hi')\n", encoding="utf-8")
+    (repo / "invariant-os.yml").write_text("focus:\n  mode: import-upload\n", encoding="utf-8")
+    output_dir = tmp_path / "audit-output"
+
+    result = runner.invoke(app, ["audit", str(repo), "--output-dir", str(output_dir)])
+
+    assert result.exit_code == 0
+    audit_result = AuditResult.model_validate_json(
+        (output_dir / "audit_result.json").read_text(encoding="utf-8")
+    )
+    assert audit_result.focus.mode == "import-upload"
 
 
 def test_audit_max_file_bytes_overrides_yaml_config(tmp_path):

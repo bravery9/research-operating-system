@@ -32,8 +32,9 @@ def _audit_config(
     output_dir: Path,
     max_file_bytes: int | None,
     config_path: Path | None,
+    focus_mode: str | None,
 ) -> AuditConfig:
-    config = load_audit_config(repo, config_path, max_file_bytes=max_file_bytes)
+    config = load_audit_config(repo, config_path, max_file_bytes=max_file_bytes, focus_mode=focus_mode)
     return apply_output_dir_ignore(config, repo, output_dir)
 
 
@@ -94,6 +95,10 @@ def audit(
         Path | None,
         typer.Option("--config", help="Path to invariant-os YAML config file."),
     ] = None,
+    focus_mode: Annotated[
+        str | None,
+        typer.Option("--focus", help="Semantic focus mode for audit evidence."),
+    ] = None,
 ) -> None:
     """Run an audit against an authorized local directory."""
     try:
@@ -105,7 +110,7 @@ def audit(
         raise typer.BadParameter("output directory must not be the audited repository root")
 
     try:
-        config = _audit_config(repo, output_dir, max_file_bytes, config_path)
+        config = _audit_config(repo, output_dir, max_file_bytes, config_path, focus_mode)
     except ValueError as error:
         raise typer.BadParameter(str(error)) from error
 

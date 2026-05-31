@@ -82,6 +82,29 @@ def test_evidence_viewer_contains_required_sections_and_safety_banner():
     assert "No exploit payload generation" in html
 
 
+def test_evidence_viewer_renders_focus_lens_summary():
+    result = _empty_result().model_copy(
+        update={
+            "focus": {
+                "mode": "worker-queue",
+                "label": "Worker / Queue",
+                "description": "Prioritizes worker and queue surfaces.",
+                "boundary_matches": 0,
+                "primitive_matches": 1,
+                "static_flow_matches": 2,
+                "total_matches": 3,
+            }
+        }
+    )
+
+    html = render_evidence_viewer(result)
+
+    assert "Focus Lens" in html
+    assert "Worker / Queue" in html
+    assert "Total focus matches" in html
+    assert "3" in html
+
+
 def test_evidence_viewer_renders_static_flow_graph_and_evidence_links():
     evidence = _evidence()
     entrypoint = Entrypoint(

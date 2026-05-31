@@ -67,6 +67,28 @@ def test_research_brief_contains_required_sections_and_safety_statement():
     assert "does not prove exploitability" in markdown
 
 
+def test_research_brief_renders_focus_lens_summary():
+    result = _empty_result().model_copy(
+        update={
+            "focus": {
+                "mode": "import-upload",
+                "label": "Import / Upload",
+                "description": "Prioritizes import and upload surfaces.",
+                "boundary_matches": 1,
+                "primitive_matches": 2,
+                "static_flow_matches": 3,
+                "total_matches": 6,
+            }
+        }
+    )
+
+    markdown = render_research_brief(result)
+
+    assert "## Focus Lens" in markdown
+    assert "Import / Upload" in markdown
+    assert "Total focus matches: 6" in markdown
+
+
 def test_research_brief_references_evidence_ids_and_missing_evidence():
     evidence = Evidence(
         id="ev_test_0001",

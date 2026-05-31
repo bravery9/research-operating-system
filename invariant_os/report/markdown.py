@@ -54,6 +54,8 @@ def render_research_brief(result: AuditResult) -> str:
         f"- Root: {result.project.root}",
         f"- Schema version: {result.schema_version}",
         "",
+        *_render_focus(result),
+        "",
         "## Entrypoints",
         "",
         *_render_entrypoints(result.entrypoints),
@@ -100,6 +102,38 @@ def render_research_brief(result: AuditResult) -> str:
         "",
     ]
     return "\n".join(lines)
+
+
+def _render_focus(result: AuditResult) -> list[str]:
+    focus = getattr(result, "focus", None)
+    if focus is None:
+        return []
+    if isinstance(focus, dict):
+        mode = focus.get("mode", "all")
+        label = focus.get("label", mode)
+        description = focus.get("description", "none recorded")
+        boundary_matches = focus.get("boundary_matches", 0)
+        primitive_matches = focus.get("primitive_matches", 0)
+        static_flow_matches = focus.get("static_flow_matches", 0)
+        total_matches = focus.get("total_matches", 0)
+    else:
+        mode = getattr(focus, "mode", "all")
+        label = getattr(focus, "label", mode)
+        description = getattr(focus, "description", "none recorded")
+        boundary_matches = getattr(focus, "boundary_matches", 0)
+        primitive_matches = getattr(focus, "primitive_matches", 0)
+        static_flow_matches = getattr(focus, "static_flow_matches", 0)
+        total_matches = getattr(focus, "total_matches", 0)
+    return [
+        "## Focus Lens",
+        "",
+        f"- Mode: `{mode}` ({label})",
+        f"- Description: {description}",
+        f"- Boundary focus matches: {boundary_matches}",
+        f"- Primitive focus matches: {primitive_matches}",
+        f"- Static flow focus matches: {static_flow_matches}",
+        f"- Total focus matches: {total_matches}",
+    ]
 
 
 def _render_entrypoints(entrypoints: list[Entrypoint]) -> list[str]:

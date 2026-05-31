@@ -190,6 +190,71 @@ def test_review_queue_renders_static_flow_candidate_row():
     }
 
 
+def test_review_queue_rows_include_focus_metadata():
+    primitive = PrimitiveCandidate(
+        id="primitive_0001",
+        primitive=PrimitiveType.FILE_WRITE,
+        confidence=Confidence.HIGH,
+        evidence=[_evidence("ev_primitive_0001")],
+    )
+    result = _empty_result().model_copy(
+        update={
+            "focus": {
+                "mode": "import-upload",
+                "label": "Import / Upload",
+                "description": "Prioritizes import and upload surfaces.",
+                "boundary_matches": 0,
+                "primitive_matches": 1,
+                "static_flow_matches": 0,
+                "total_matches": 1,
+            },
+            "primitive_candidates": [primitive],
+        }
+    )
+
+    row = _rows(result)[0]
+
+    assert row["focus_mode"] == "import-upload"
+    assert row["focus_match"] is True
+    assert row["focus_score"] >= 50
+    assert "primitive:file_write" in row["focus_reasons"]
+
+
+def test_review_queue_sorts_focus_matches_before_non_matches():
+    url_primitive = PrimitiveCandidate(
+        id="primitive_0001",
+        primitive=PrimitiveType.URL_CONTROL,
+        confidence=Confidence.MEDIUM,
+        evidence=[_evidence("ev_url_0001")],
+    )
+    file_primitive = PrimitiveCandidate(
+        id="primitive_0002",
+        primitive=PrimitiveType.FILE_WRITE,
+        confidence=Confidence.HIGH,
+        evidence=[_evidence("ev_file_0001")],
+    )
+    result = _empty_result().model_copy(
+        update={
+            "focus": {
+                "mode": "import-upload",
+                "label": "Import / Upload",
+                "description": "Prioritizes import and upload surfaces.",
+                "boundary_matches": 0,
+                "primitive_matches": 1,
+                "static_flow_matches": 0,
+                "total_matches": 1,
+            },
+            "primitive_candidates": [url_primitive, file_primitive],
+        }
+    )
+
+    rows = _rows(result)
+
+    assert [row["candidate_id"] for row in rows] == ["primitive_0002", "primitive_0001"]
+    assert rows[0]["focus_match"] is True
+    assert rows[1]["focus_match"] is False
+
+
 def test_review_queue_rows_are_sorted_deterministically():
     boundary = BoundaryCandidate(
         id="boundary_0001",

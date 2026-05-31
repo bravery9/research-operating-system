@@ -36,6 +36,7 @@ def render_evidence_viewer(result: AuditResult) -> str:
     """Render a deterministic static HTML evidence workspace."""
     sections = [
         _section("Summary", _render_summary(result)),
+        _section("Focus Lens", _render_focus(result)),
         _section("Scope and Safety", _render_safety(result)),
         _section("Entrypoints", _render_entrypoints(result.entrypoints)),
         _section("Worker and Background Job Candidates", _render_workers(result.workers)),
@@ -98,6 +99,7 @@ ul { padding-left: 1.25rem; }
 def _render_nav() -> str:
     links = [
         "Summary",
+        "Focus Lens",
         "Scope and Safety",
         "Entrypoints",
         "Worker and Background Job Candidates",
@@ -133,6 +135,38 @@ def _render_summary(result: AuditResult) -> str:
         ("Static flow/dataflow candidates", str(result.summary.static_flow_candidates)),
     ]
     return _definition_list(rows)
+
+
+def _render_focus(result: AuditResult) -> str:
+    focus = getattr(result, "focus", None)
+    if focus is None:
+        return "<p>No focus lens metadata was recorded.</p>"
+    if isinstance(focus, dict):
+        mode = focus.get("mode", "all")
+        label = focus.get("label", mode)
+        description = focus.get("description", "none recorded")
+        boundary_matches = focus.get("boundary_matches", 0)
+        primitive_matches = focus.get("primitive_matches", 0)
+        static_flow_matches = focus.get("static_flow_matches", 0)
+        total_matches = focus.get("total_matches", 0)
+    else:
+        mode = getattr(focus, "mode", "all")
+        label = getattr(focus, "label", mode)
+        description = getattr(focus, "description", "none recorded")
+        boundary_matches = getattr(focus, "boundary_matches", 0)
+        primitive_matches = getattr(focus, "primitive_matches", 0)
+        static_flow_matches = getattr(focus, "static_flow_matches", 0)
+        total_matches = getattr(focus, "total_matches", 0)
+    return _definition_list(
+        [
+            ("Mode", f"{mode} ({label})"),
+            ("Description", str(description)),
+            ("Boundary focus matches", str(boundary_matches)),
+            ("Primitive focus matches", str(primitive_matches)),
+            ("Static flow focus matches", str(static_flow_matches)),
+            ("Total focus matches", str(total_matches)),
+        ]
+    )
 
 
 def _render_safety(result: AuditResult) -> str:
