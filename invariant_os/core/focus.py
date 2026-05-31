@@ -130,7 +130,7 @@ _FOCUS_PROFILES: dict[FocusMode, FocusProfile] = {
             PrimitiveType.INTERNAL_REQUEST_TRIGGER,
         ),
         static_flow_target_types=(StaticFlowTargetType.CONSUMER,),
-        keywords=("url", "internal", "request", "http", "redirect", "callback"),
+        keywords=("url", "internal", "http", "redirect", "callback", "fetch", "webhook", "network", "outbound"),
     ),
 }
 

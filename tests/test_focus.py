@@ -148,6 +148,60 @@ def test_import_upload_focus_scores_consumer_static_flow_with_keywords():
     assert "keyword:file" in metadata.focus_reasons
 
 
+def test_url_internal_request_focus_does_not_match_generic_request_parameter_static_flow():
+    static_flow = StaticFlowCandidate(
+        id="static_flow_0001",
+        source_entrypoint_id="entrypoint_0001",
+        target_ref_id="consumer_0001",
+        target_type=StaticFlowTargetType.CONSUMER,
+        confidence=Confidence.MEDIUM,
+        score=40,
+        summary="Request handler passes request_parameter to consumer.",
+        signals=[
+            StaticFlowSignal(
+                type=StaticFlowSignalType.ROUTE_TOKEN,
+                term="request_parameter",
+                score=10,
+            )
+        ],
+    )
+
+    metadata = score_static_flow_focus(static_flow, FocusMode.URL_INTERNAL_REQUEST)
+
+    assert metadata.focus_match is False
+    assert metadata.focus_score == 0
+    assert metadata.focus_reasons == []
+
+
+def test_url_internal_request_focus_scores_url_http_internal_fetch_static_flow():
+    static_flow = StaticFlowCandidate(
+        id="static_flow_0001",
+        source_entrypoint_id="entrypoint_0001",
+        target_ref_id="consumer_0001",
+        target_type=StaticFlowTargetType.CONSUMER,
+        confidence=Confidence.MEDIUM,
+        score=40,
+        summary="URL handler triggers internal HTTP fetch consumer.",
+        signals=[
+            StaticFlowSignal(
+                type=StaticFlowSignalType.ROUTE_TOKEN,
+                term="url_fetch",
+                score=10,
+            )
+        ],
+    )
+
+    metadata = score_static_flow_focus(static_flow, FocusMode.URL_INTERNAL_REQUEST)
+
+    assert metadata.focus_match is True
+    assert metadata.focus_score >= 50
+    assert "static_flow_target:consumer" in metadata.focus_reasons
+    assert "keyword:url" in metadata.focus_reasons
+    assert "keyword:internal" in metadata.focus_reasons
+    assert "keyword:http" in metadata.focus_reasons
+    assert "keyword:fetch" in metadata.focus_reasons
+
+
 def test_focus_summary_counts_matches_by_category():
     boundary = score_boundary_focus(
         BoundaryCandidate(
