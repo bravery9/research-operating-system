@@ -226,15 +226,22 @@ def score_static_flow_focus(candidate: StaticFlowCandidate, mode: str | FocusMod
     score = 0
     reasons: list[str] = []
 
-    if candidate.target_type in profile.static_flow_target_types:
+    target_type_matches = candidate.target_type in profile.static_flow_target_types
+    if target_type_matches:
         score += 50
         reasons.append(f"static_flow_target:{candidate.target_type.value}")
 
+    keyword_match_count = 0
     keyword_text = _static_flow_keyword_text(candidate)
     for keyword in profile.keywords:
         if keyword.lower() in keyword_text:
+            keyword_match_count += 1
             score += 10
             reasons.append(f"keyword:{keyword}")
+
+    if focus_mode is not FocusMode.WORKER_QUEUE and target_type_matches and keyword_match_count == 0:
+        score = 0
+        reasons = []
 
     return FocusCandidateMetadata(
         focus_mode=focus_mode.value,

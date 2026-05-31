@@ -14,6 +14,8 @@ from invariant_os.core.models import (
     PrimitiveCandidate,
     PrimitiveType,
     StaticFlowCandidate,
+    StaticFlowSignal,
+    StaticFlowSignalType,
     StaticFlowTargetType,
 )
 
@@ -93,6 +95,31 @@ def test_worker_queue_focus_does_not_match_unrelated_primitive():
     assert metadata.focus_reasons == []
 
 
+def test_import_upload_focus_does_not_match_consumer_static_flow_without_keywords():
+    static_flow = StaticFlowCandidate(
+        id="static_flow_0001",
+        source_entrypoint_id="entrypoint_0001",
+        target_ref_id="consumer_0001",
+        target_type=StaticFlowTargetType.CONSUMER,
+        confidence=Confidence.MEDIUM,
+        score=40,
+        summary="Request handler reaches downstream consumer.",
+        signals=[
+            StaticFlowSignal(
+                type=StaticFlowSignalType.HANDLER_EXACT,
+                term="processData",
+                score=20,
+            )
+        ],
+    )
+
+    metadata = score_static_flow_focus(static_flow, FocusMode.IMPORT_UPLOAD)
+
+    assert metadata.focus_match is False
+    assert metadata.focus_score == 0
+    assert metadata.focus_reasons == []
+
+
 def test_import_upload_focus_scores_consumer_static_flow_with_keywords():
     static_flow = StaticFlowCandidate(
         id="static_flow_0001",
@@ -102,6 +129,13 @@ def test_import_upload_focus_scores_consumer_static_flow_with_keywords():
         confidence=Confidence.MEDIUM,
         score=40,
         summary="Upload handler reaches import parser consumer.",
+        signals=[
+            StaticFlowSignal(
+                type=StaticFlowSignalType.ROUTE_TOKEN,
+                term="file",
+                score=10,
+            )
+        ],
     )
 
     metadata = score_static_flow_focus(static_flow, FocusMode.IMPORT_UPLOAD)
@@ -111,6 +145,7 @@ def test_import_upload_focus_scores_consumer_static_flow_with_keywords():
     assert "static_flow_target:consumer" in metadata.focus_reasons
     assert "keyword:upload" in metadata.focus_reasons
     assert "keyword:import" in metadata.focus_reasons
+    assert "keyword:file" in metadata.focus_reasons
 
 
 def test_focus_summary_counts_matches_by_category():
