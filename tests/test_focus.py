@@ -2,6 +2,7 @@ from invariant_os.core.focus import (
     FocusMode,
     focus_sort_key,
     get_focus_profile,
+    parse_focus_mode,
     score_boundary_focus,
     score_primitive_focus,
     score_static_flow_focus,
@@ -18,6 +19,11 @@ from invariant_os.core.models import (
     StaticFlowSignalType,
     StaticFlowTargetType,
 )
+
+
+def test_parse_focus_mode_defaults_none_and_normalizes_strings():
+    assert parse_focus_mode(None) == FocusMode.ALL
+    assert parse_focus_mode(" Import-Upload ") == FocusMode.IMPORT_UPLOAD
 
 
 def test_focus_profiles_expose_supported_modes_and_labels():
@@ -38,6 +44,7 @@ def test_focus_profiles_expose_supported_modes_and_labels():
     assert profile.description
     assert BoundaryType.DATA_TO_FILE in profile.boundary_types
     assert PrimitiveType.FILE_WRITE in profile.primitive_types
+    assert {"archive", "zip", "path"}.issubset(set(profile.keywords))
 
 
 def test_all_focus_scores_every_candidate_as_neutral_match():
@@ -80,6 +87,22 @@ def test_import_upload_focus_scores_matching_boundary_and_primitive():
     assert "primitive:file_write" in primitive_metadata.focus_reasons
 
 
+def test_import_upload_reason_keyword_matches_boundary_without_profile_type():
+    boundary = BoundaryCandidate(
+        id="boundary_0001",
+        type=BoundaryType.DATA_TO_URL,
+        confidence=Confidence.MEDIUM,
+        reason="Candidate request data reaches an archive extraction path.",
+    )
+
+    metadata = score_boundary_focus(boundary, FocusMode.IMPORT_UPLOAD)
+
+    assert metadata.focus_match is True
+    assert metadata.focus_score > 0
+    assert "keyword:archive" in metadata.focus_reasons
+    assert "keyword:path" in metadata.focus_reasons
+
+
 def test_worker_queue_focus_does_not_match_unrelated_primitive():
     primitive = PrimitiveCandidate(
         id="primitive_0001",
@@ -93,6 +116,67 @@ def test_worker_queue_focus_does_not_match_unrelated_primitive():
     assert metadata.focus_match is False
     assert metadata.focus_score == 0
     assert metadata.focus_reasons == []
+
+
+def test_import_upload_evidence_keywords_match_primitive_without_profile_type():
+    primitive = PrimitiveCandidate(
+        id="primitive_0001",
+        primitive=PrimitiveType.URL_CONTROL,
+        confidence=Confidence.MEDIUM,
+        missing_evidence=["Need archive format validation evidence."],
+        safe_next_steps=["Review zip parser handling and path normalization."],
+    )
+
+    metadata = score_primitive_focus(primitive, FocusMode.IMPORT_UPLOAD)
+
+    assert metadata.focus_match is True
+    assert metadata.focus_score > 0
+    assert "keyword:archive" in metadata.focus_reasons
+    assert "keyword:zip" in metadata.focus_reasons
+    assert "keyword:path" in metadata.focus_reasons
+
+
+def test_import_upload_keywords_do_not_match_profile_or_important_substrings():
+    boundary = BoundaryCandidate(
+        id="boundary_0001",
+        type=BoundaryType.DATA_TO_URL,
+        confidence=Confidence.MEDIUM,
+        reason="Candidate profile update has important metadata.",
+    )
+    primitive = PrimitiveCandidate(
+        id="primitive_0001",
+        primitive=PrimitiveType.URL_CONTROL,
+        confidence=Confidence.MEDIUM,
+        missing_evidence=["Profile field evidence is important."],
+        safe_next_steps=["Review profile metadata."],
+    )
+    static_flow = StaticFlowCandidate(
+        id="static_flow_0001",
+        source_entrypoint_id="entrypoint_0001",
+        target_ref_id="consumer_0001",
+        target_type=StaticFlowTargetType.CONSUMER,
+        confidence=Confidence.MEDIUM,
+        score=40,
+        summary="Profile update marks important fields.",
+        signals=[
+            StaticFlowSignal(
+                type=StaticFlowSignalType.ROUTE_TOKEN,
+                term="profile_important",
+                score=10,
+            )
+        ],
+    )
+
+    boundary_metadata = score_boundary_focus(boundary, FocusMode.IMPORT_UPLOAD)
+    primitive_metadata = score_primitive_focus(primitive, FocusMode.IMPORT_UPLOAD)
+    static_flow_metadata = score_static_flow_focus(static_flow, FocusMode.IMPORT_UPLOAD)
+
+    assert boundary_metadata.focus_match is False
+    assert boundary_metadata.focus_reasons == []
+    assert primitive_metadata.focus_match is False
+    assert primitive_metadata.focus_reasons == []
+    assert static_flow_metadata.focus_match is False
+    assert static_flow_metadata.focus_reasons == []
 
 
 def test_import_upload_focus_does_not_match_consumer_static_flow_without_keywords():

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+import re
 from typing import Any
 
 from invariant_os.core.models import (
@@ -81,7 +82,7 @@ _FOCUS_PROFILES: dict[FocusMode, FocusProfile] = {
             PrimitiveType.DIRECTORY_QUERY_CONTROL,
         ),
         static_flow_target_types=(StaticFlowTargetType.CONSUMER,),
-        keywords=("import", "upload", "parser", "file", "directory", "config"),
+        keywords=("import", "upload", "parser", "file", "config", "directory", "archive", "zip", "path"),
     ),
     FocusMode.WORKER_QUEUE: FocusProfile(
         mode=FocusMode.WORKER_QUEUE,
@@ -135,17 +136,20 @@ _FOCUS_PROFILES: dict[FocusMode, FocusProfile] = {
 }
 
 
-def parse_focus_mode(value: str | FocusMode) -> FocusMode:
+def parse_focus_mode(value: str | FocusMode | None) -> FocusMode:
+    if value is None:
+        return FocusMode.ALL
     if isinstance(value, FocusMode):
         return value
+    normalized_value = value.strip().lower()
     try:
-        return FocusMode(value)
+        return FocusMode(normalized_value)
     except ValueError as exc:
         allowed = ", ".join(mode.value for mode in FocusMode)
         raise ValueError(f"Invalid focus.mode {value!r}; allowed values: {allowed}") from exc
 
 
-def get_focus_profile(mode: str | FocusMode) -> FocusProfile:
+def get_focus_profile(mode: str | FocusMode | None) -> FocusProfile:
     return _FOCUS_PROFILES[parse_focus_mode(mode)]
 
 
@@ -158,47 +162,63 @@ def _all_focus_metadata(mode: FocusMode) -> FocusCandidateMetadata:
     )
 
 
-def score_boundary_focus(candidate: BoundaryCandidate, mode: str | FocusMode) -> FocusCandidateMetadata:
+def _keyword_tokens(text: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9]+", text.lower()))
+
+
+def _matched_keywords(text: str, keywords: tuple[str, ...]) -> list[str]:
+    tokens = _keyword_tokens(text)
+    return [keyword for keyword in keywords if keyword.lower() in tokens]
+
+
+def score_boundary_focus(candidate: BoundaryCandidate, mode: str | FocusMode | None) -> FocusCandidateMetadata:
     focus_mode = parse_focus_mode(mode)
     if focus_mode is FocusMode.ALL:
         return _all_focus_metadata(focus_mode)
 
     profile = get_focus_profile(focus_mode)
+    score = 0
+    reasons: list[str] = []
+
     if candidate.type in profile.boundary_types:
-        return FocusCandidateMetadata(
-            focus_mode=focus_mode.value,
-            focus_match=True,
-            focus_score=50,
-            focus_reasons=[f"boundary:{candidate.type.value}"],
-        )
+        score += 50
+        reasons.append(f"boundary:{candidate.type.value}")
+
+    for keyword in _matched_keywords(candidate.reason, profile.keywords):
+        score += 10
+        reasons.append(f"keyword:{keyword}")
 
     return FocusCandidateMetadata(
         focus_mode=focus_mode.value,
-        focus_match=False,
-        focus_score=0,
-        focus_reasons=[],
+        focus_match=score > 0,
+        focus_score=score,
+        focus_reasons=reasons,
     )
 
 
-def score_primitive_focus(candidate: PrimitiveCandidate, mode: str | FocusMode) -> FocusCandidateMetadata:
+def score_primitive_focus(candidate: PrimitiveCandidate, mode: str | FocusMode | None) -> FocusCandidateMetadata:
     focus_mode = parse_focus_mode(mode)
     if focus_mode is FocusMode.ALL:
         return _all_focus_metadata(focus_mode)
 
     profile = get_focus_profile(focus_mode)
+    score = 0
+    reasons: list[str] = []
+
     if candidate.primitive in profile.primitive_types:
-        return FocusCandidateMetadata(
-            focus_mode=focus_mode.value,
-            focus_match=True,
-            focus_score=50,
-            focus_reasons=[f"primitive:{candidate.primitive.value}"],
-        )
+        score += 50
+        reasons.append(f"primitive:{candidate.primitive.value}")
+
+    keyword_text = " ".join((*candidate.missing_evidence, *candidate.safe_next_steps))
+    for keyword in _matched_keywords(keyword_text, profile.keywords):
+        score += 10
+        reasons.append(f"keyword:{keyword}")
 
     return FocusCandidateMetadata(
         focus_mode=focus_mode.value,
-        focus_match=False,
-        focus_score=0,
-        focus_reasons=[],
+        focus_match=score > 0,
+        focus_score=score,
+        focus_reasons=reasons,
     )
 
 
@@ -214,10 +234,10 @@ def _static_flow_keyword_text(candidate: StaticFlowCandidate) -> str:
             signal_terms,
             signal_types,
         )
-    ).lower()
+    )
 
 
-def score_static_flow_focus(candidate: StaticFlowCandidate, mode: str | FocusMode) -> FocusCandidateMetadata:
+def score_static_flow_focus(candidate: StaticFlowCandidate, mode: str | FocusMode | None) -> FocusCandidateMetadata:
     focus_mode = parse_focus_mode(mode)
     if focus_mode is FocusMode.ALL:
         return _all_focus_metadata(focus_mode)
@@ -233,11 +253,10 @@ def score_static_flow_focus(candidate: StaticFlowCandidate, mode: str | FocusMod
 
     keyword_match_count = 0
     keyword_text = _static_flow_keyword_text(candidate)
-    for keyword in profile.keywords:
-        if keyword.lower() in keyword_text:
-            keyword_match_count += 1
-            score += 10
-            reasons.append(f"keyword:{keyword}")
+    for keyword in _matched_keywords(keyword_text, profile.keywords):
+        keyword_match_count += 1
+        score += 10
+        reasons.append(f"keyword:{keyword}")
 
     if focus_mode is not FocusMode.WORKER_QUEUE and target_type_matches and keyword_match_count == 0:
         score = 0
@@ -253,7 +272,7 @@ def score_static_flow_focus(candidate: StaticFlowCandidate, mode: str | FocusMod
 
 def summarize_focus_matches(
     *,
-    mode: str | FocusMode,
+    mode: str | FocusMode | None,
     boundary_metadata: list[FocusCandidateMetadata],
     primitive_metadata: list[FocusCandidateMetadata],
     static_flow_metadata: list[FocusCandidateMetadata],
