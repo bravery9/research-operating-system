@@ -4,6 +4,7 @@ from invariant_os.core.focus import (
     get_focus_profile,
     score_boundary_focus,
     score_primitive_focus,
+    score_static_flow_focus,
     summarize_focus_matches,
 )
 from invariant_os.core.models import (
@@ -12,6 +13,8 @@ from invariant_os.core.models import (
     Confidence,
     PrimitiveCandidate,
     PrimitiveType,
+    StaticFlowCandidate,
+    StaticFlowTargetType,
 )
 
 
@@ -24,8 +27,13 @@ def test_focus_profiles_expose_supported_modes_and_labels():
 
     profile = get_focus_profile(FocusMode.IMPORT_UPLOAD)
 
+    all_profile = get_focus_profile(FocusMode.ALL)
+    assert all_profile.label == "All Evidence"
+    assert all_profile.description == "Default lens over all deterministic audit evidence."
+
     assert profile.mode == FocusMode.IMPORT_UPLOAD
     assert profile.label == "Import / Upload"
+    assert profile.description
     assert BoundaryType.DATA_TO_FILE in profile.boundary_types
     assert PrimitiveType.FILE_WRITE in profile.primitive_types
 
@@ -85,6 +93,26 @@ def test_worker_queue_focus_does_not_match_unrelated_primitive():
     assert metadata.focus_reasons == []
 
 
+def test_import_upload_focus_scores_consumer_static_flow_with_keywords():
+    static_flow = StaticFlowCandidate(
+        id="static_flow_0001",
+        source_entrypoint_id="entrypoint_0001",
+        target_ref_id="consumer_0001",
+        target_type=StaticFlowTargetType.CONSUMER,
+        confidence=Confidence.MEDIUM,
+        score=40,
+        summary="Upload handler reaches import parser consumer.",
+    )
+
+    metadata = score_static_flow_focus(static_flow, FocusMode.IMPORT_UPLOAD)
+
+    assert metadata.focus_match is True
+    assert metadata.focus_score >= 50
+    assert "static_flow_target:consumer" in metadata.focus_reasons
+    assert "keyword:upload" in metadata.focus_reasons
+    assert "keyword:import" in metadata.focus_reasons
+
+
 def test_focus_summary_counts_matches_by_category():
     boundary = score_boundary_focus(
         BoundaryCandidate(
@@ -113,6 +141,7 @@ def test_focus_summary_counts_matches_by_category():
 
     assert summary.mode == "import-upload"
     assert summary.label == "Import / Upload"
+    assert summary.description
     assert summary.boundary_matches == 1
     assert summary.primitive_matches == 0
     assert summary.static_flow_matches == 0

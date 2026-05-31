@@ -26,8 +26,11 @@ class FocusMode(str, Enum):
 class FocusProfile:
     mode: FocusMode
     label: str
+    description: str
     boundary_types: tuple[BoundaryType, ...]
     primitive_types: tuple[PrimitiveType, ...]
+    static_flow_target_types: tuple[StaticFlowTargetType, ...]
+    keywords: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -42,6 +45,7 @@ class FocusCandidateMetadata:
 class FocusSummary:
     mode: str
     label: str
+    description: str
     boundary_matches: int
     primitive_matches: int
     static_flow_matches: int
@@ -51,13 +55,17 @@ class FocusSummary:
 _FOCUS_PROFILES: dict[FocusMode, FocusProfile] = {
     FocusMode.ALL: FocusProfile(
         mode=FocusMode.ALL,
-        label="All",
+        label="All Evidence",
+        description="Default lens over all deterministic audit evidence.",
         boundary_types=(),
         primitive_types=(),
+        static_flow_target_types=(),
+        keywords=(),
     ),
     FocusMode.IMPORT_UPLOAD: FocusProfile(
         mode=FocusMode.IMPORT_UPLOAD,
         label="Import / Upload",
+        description="Highlights import, upload, parser, file, and directory evidence.",
         boundary_types=(
             BoundaryType.DATA_TO_FILE,
             BoundaryType.DATA_TO_CONFIG,
@@ -72,10 +80,13 @@ _FOCUS_PROFILES: dict[FocusMode, FocusProfile] = {
             PrimitiveType.PARSER_DIFFERENTIAL,
             PrimitiveType.DIRECTORY_QUERY_CONTROL,
         ),
+        static_flow_target_types=(StaticFlowTargetType.CONSUMER,),
+        keywords=("import", "upload", "parser", "file", "directory", "config"),
     ),
     FocusMode.WORKER_QUEUE: FocusProfile(
         mode=FocusMode.WORKER_QUEUE,
         label="Worker / Queue",
+        description="Highlights worker, queue, job, task, and asynchronous handoff evidence.",
         boundary_types=(
             BoundaryType.REQUEST_TO_WORKER,
             BoundaryType.DATA_TO_JOB,
@@ -85,10 +96,13 @@ _FOCUS_PROFILES: dict[FocusMode, FocusProfile] = {
             PrimitiveType.JOB_CONTROL,
             PrimitiveType.TYPE_CONTROL,
         ),
+        static_flow_target_types=(StaticFlowTargetType.WORKER,),
+        keywords=("worker", "queue", "job", "task", "async"),
     ),
     FocusMode.TEMPLATE_WORKFLOW: FocusProfile(
         mode=FocusMode.TEMPLATE_WORKFLOW,
         label="Template / Workflow",
+        description="Highlights template, workflow, render, parser, and config evidence.",
         boundary_types=(
             BoundaryType.DATA_TO_TEMPLATE,
             BoundaryType.DATA_TO_CONFIG,
@@ -100,10 +114,13 @@ _FOCUS_PROFILES: dict[FocusMode, FocusProfile] = {
             PrimitiveType.PARSER_DIFFERENTIAL,
             PrimitiveType.TYPE_CONTROL,
         ),
+        static_flow_target_types=(StaticFlowTargetType.CONSUMER,),
+        keywords=("template", "workflow", "render", "parser", "config"),
     ),
     FocusMode.URL_INTERNAL_REQUEST: FocusProfile(
         mode=FocusMode.URL_INTERNAL_REQUEST,
         label="URL / Internal Request",
+        description="Highlights URL, internal request, HTTP, redirect, and callback evidence.",
         boundary_types=(
             BoundaryType.DATA_TO_URL,
             BoundaryType.EXTERNAL_TO_INTERNAL,
@@ -112,6 +129,8 @@ _FOCUS_PROFILES: dict[FocusMode, FocusProfile] = {
             PrimitiveType.URL_CONTROL,
             PrimitiveType.INTERNAL_REQUEST_TRIGGER,
         ),
+        static_flow_target_types=(StaticFlowTargetType.CONSUMER,),
+        keywords=("url", "internal", "request", "http", "redirect", "callback"),
     ),
 }
 
@@ -183,24 +202,45 @@ def score_primitive_focus(candidate: PrimitiveCandidate, mode: str | FocusMode) 
     )
 
 
+def _static_flow_keyword_text(candidate: StaticFlowCandidate) -> str:
+    signal_terms = " ".join(signal.term for signal in candidate.signals)
+    signal_types = " ".join(signal.type.value for signal in candidate.signals)
+    return " ".join(
+        (
+            candidate.id,
+            candidate.source_entrypoint_id,
+            candidate.target_ref_id,
+            candidate.summary,
+            signal_terms,
+            signal_types,
+        )
+    ).lower()
+
+
 def score_static_flow_focus(candidate: StaticFlowCandidate, mode: str | FocusMode) -> FocusCandidateMetadata:
     focus_mode = parse_focus_mode(mode)
     if focus_mode is FocusMode.ALL:
         return _all_focus_metadata(focus_mode)
 
-    if focus_mode is FocusMode.WORKER_QUEUE and candidate.target_type is StaticFlowTargetType.WORKER:
-        return FocusCandidateMetadata(
-            focus_mode=focus_mode.value,
-            focus_match=True,
-            focus_score=50,
-            focus_reasons=["static_flow:worker"],
-        )
+    profile = get_focus_profile(focus_mode)
+    score = 0
+    reasons: list[str] = []
+
+    if candidate.target_type in profile.static_flow_target_types:
+        score += 50
+        reasons.append(f"static_flow_target:{candidate.target_type.value}")
+
+    keyword_text = _static_flow_keyword_text(candidate)
+    for keyword in profile.keywords:
+        if keyword.lower() in keyword_text:
+            score += 10
+            reasons.append(f"keyword:{keyword}")
 
     return FocusCandidateMetadata(
         focus_mode=focus_mode.value,
-        focus_match=False,
-        focus_score=0,
-        focus_reasons=[],
+        focus_match=score > 0,
+        focus_score=score,
+        focus_reasons=reasons,
     )
 
 
@@ -220,6 +260,7 @@ def summarize_focus_matches(
     return FocusSummary(
         mode=focus_mode.value,
         label=profile.label,
+        description=profile.description,
         boundary_matches=boundary_matches,
         primitive_matches=primitive_matches,
         static_flow_matches=static_flow_matches,
