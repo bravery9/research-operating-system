@@ -369,6 +369,22 @@ def test_audit_uses_yaml_max_file_bytes_without_cli_override(tmp_path):
     assert [record.path for record in audit_result.files] == ["small.py"]
 
 
+def test_audit_uses_yaml_focus_mode_without_cli_override(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "app.py").write_text("print('hi')\n", encoding="utf-8")
+    (repo / "invariant-os.yml").write_text("focus:\n  mode: import-upload\n", encoding="utf-8")
+    output_dir = tmp_path / "audit-output"
+
+    result = runner.invoke(app, ["audit", str(repo), "--output-dir", str(output_dir)])
+
+    assert result.exit_code == 0
+    audit_result = AuditResult.model_validate_json(
+        (output_dir / "audit_result.json").read_text(encoding="utf-8")
+    )
+    assert audit_result.focus.mode == "import-upload"
+
+
 def test_audit_max_file_bytes_overrides_yaml_config(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()

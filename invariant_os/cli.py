@@ -96,9 +96,9 @@ def audit(
         typer.Option("--config", help="Path to invariant-os YAML config file."),
     ] = None,
     focus_mode: Annotated[
-        str,
+        str | None,
         typer.Option("--focus", help="Semantic focus mode for audit evidence."),
-    ] = "all",
+    ] = None,
 ) -> None:
     """Run an audit against an authorized local directory."""
     try:

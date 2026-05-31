@@ -139,7 +139,7 @@ def _apply_payload(config: AuditConfig, repo: Path, payload: dict[str, Any]) -> 
     focus = _mapping(payload.get("focus"), "focus")
     if focus:
         if "mode" in focus:
-            config.focus.mode = parse_focus_mode(_optional_string(focus.get("mode"), "focus.mode")).value
+            config.focus.mode = parse_focus_mode(_required_string(focus.get("mode"), "focus.mode")).value
         config.focus.files.update(
             _validate_relative_path(value, "focus.files")
             for value in _string_set(focus.get("files"), "focus.files")
@@ -255,6 +255,12 @@ def _optional_string(value: object, field_name: str) -> str | None:
     if not isinstance(value, str):
         raise ValueError(f"{field_name} must be a string")
     return value.strip() or None
+
+
+def _required_string(value: object, field_name: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{field_name} must be a non-empty string")
+    return value.strip()
 
 
 def _optional_int(value: object, field_name: str, default: int) -> int:
