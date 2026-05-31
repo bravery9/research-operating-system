@@ -95,6 +95,33 @@ def test_audit_writes_artifacts_for_fixture(tmp_path):
     assert all(row["queue_type"] == "manual_review_candidate" for row in review_queue_rows)
 
 
+def test_audit_accepts_focus_option_and_writes_focus_metadata(tmp_path):
+    fixture = Path(__file__).parent / "fixtures" / "mini_express_app"
+    output_dir = tmp_path / "focus-output"
+
+    result = runner.invoke(
+        app,
+        ["audit", str(fixture), "--output-dir", str(output_dir), "--focus", "import-upload"],
+    )
+
+    assert result.exit_code == 0
+    audit_result = AuditResult.model_validate_json(
+        (output_dir / "audit_result.json").read_text(encoding="utf-8")
+    )
+    assert audit_result.focus.mode == "import-upload"
+    assert audit_result.focus.label == "Import / Upload"
+    assert audit_result.focus.total_matches >= 0
+
+
+def test_audit_rejects_unknown_focus_option(tmp_path):
+    fixture = Path(__file__).parent / "fixtures" / "mini_express_app"
+
+    result = runner.invoke(app, ["audit", str(fixture), "--focus", "internet"])
+
+    assert result.exit_code != 0
+    assert "focus.mode" in result.output
+
+
 def test_audit_writes_java_tomcat_fixture_signals(tmp_path):
     fixture = Path(__file__).parent / "fixtures" / "mini_tomcat_app"
     output_dir = tmp_path / "tomcat-audit-output"

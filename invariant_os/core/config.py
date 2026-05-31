@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 import yaml  # type: ignore[import-untyped]
 
 from invariant_os.core.constants import DEFAULT_IGNORE_DIRS
+from invariant_os.core.focus import parse_focus_mode
 
 _CONFIG_ERROR = "audit config must be a local YAML file"
 _DISABLED_LLM_ERROR = "llm integration is disabled for local deterministic audit config"
@@ -28,6 +29,7 @@ class DetectorFocusConfig(BaseModel):
 
 
 class FocusConfig(BaseModel):
+    mode: str = "all"
     files: set[str] = Field(default_factory=set)
     detectors: DetectorFocusConfig = Field(default_factory=DetectorFocusConfig)
 
@@ -62,6 +64,7 @@ def load_audit_config(
     config_path: Path | None,
     *,
     max_file_bytes: int | None = None,
+    focus_mode: str | None = None,
 ) -> AuditConfig:
     repo_root = Path(repo).resolve()
     path = _resolved_config_path(repo_root, config_path)
@@ -73,6 +76,8 @@ def load_audit_config(
 
     if max_file_bytes is not None:
         config.max_file_bytes = max_file_bytes
+    if focus_mode is not None:
+        config.focus.mode = parse_focus_mode(focus_mode).value
 
     _validate_config(config)
     return config
@@ -133,6 +138,8 @@ def _apply_payload(config: AuditConfig, repo: Path, payload: dict[str, Any]) -> 
 
     focus = _mapping(payload.get("focus"), "focus")
     if focus:
+        if "mode" in focus:
+            config.focus.mode = parse_focus_mode(_optional_string(focus.get("mode"), "focus.mode")).value
         config.focus.files.update(
             _validate_relative_path(value, "focus.files")
             for value in _string_set(focus.get("files"), "focus.files")
@@ -187,6 +194,7 @@ def _apply_detector_selection(selection: DetectorSelection, value: object, field
 
 
 def _validate_config(config: AuditConfig) -> None:
+    config.focus.mode = parse_focus_mode(config.focus.mode).value
     if config.max_file_bytes < 0:
         raise ValueError("max_file_bytes must be non-negative")
     if config.flow.max_candidates_total < 0:
